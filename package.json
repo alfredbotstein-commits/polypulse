@@ -8,11 +8,17 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js"
   },
-  "keywords": ["polymarket", "telegram", "bot", "prediction-markets"],
+  "keywords": [
+    "polymarket",
+    "telegram",
+    "bot",
+    "prediction-markets"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "axios": "^1.6.0",
+    "better-sqlite3": "^12.6.2",
     "dotenv": "^16.3.1",
     "telegraf": "^4.15.0"
   }

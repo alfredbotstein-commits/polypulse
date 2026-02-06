@@ -119,6 +119,33 @@ export function formatVolume(volume) {
 /**
  * Parse outcome prices from market
  */
+/**
+ * Get market by ID (or condition ID)
+ */
+export async function getMarketById(marketId) {
+  try {
+    const response = await axios.get(`${BASE_URL}/markets/${marketId}`);
+    return response.data;
+  } catch (err) {
+    // Try as condition ID
+    try {
+      const response = await axios.get(`${BASE_URL}/markets`, {
+        params: {
+          id: marketId,
+          closed: false,
+          active: true,
+        }
+      });
+      return response.data[0] || null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Parse outcome prices from market
+ */
 export function parseOutcomes(market) {
   try {
     const outcomes = JSON.parse(market.outcomes || '[]');
