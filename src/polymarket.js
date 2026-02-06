@@ -1,12 +1,22 @@
 import axios from 'axios';
 
 const BASE_URL = 'https://gamma-api.polymarket.com';
+const REQUEST_TIMEOUT = 15000; // 15 seconds
+
+// Axios instance with default config
+const api = axios.create({
+  baseURL: BASE_URL,
+  timeout: REQUEST_TIMEOUT,
+  headers: {
+    'User-Agent': 'PolyPulse/1.0',
+  },
+});
 
 /**
  * Search for markets by query string
  */
 export async function searchMarkets(query, limit = 5) {
-  const response = await axios.get(`${BASE_URL}/markets`, {
+  const response = await api.get('/markets', {
     params: {
       closed: false,
       active: true,
@@ -31,7 +41,7 @@ export async function searchMarkets(query, limit = 5) {
  * Get market by slug
  */
 export async function getMarketBySlug(slug) {
-  const response = await axios.get(`${BASE_URL}/markets`, {
+  const response = await api.get('/markets', {
     params: {
       slug,
       closed: false,
@@ -46,7 +56,7 @@ export async function getMarketBySlug(slug) {
  * Get trending markets (sorted by 24h volume)
  */
 export async function getTrendingMarkets(limit = 10) {
-  const response = await axios.get(`${BASE_URL}/markets`, {
+  const response = await api.get('/markets', {
     params: {
       closed: false,
       active: true,
@@ -67,7 +77,7 @@ export async function getTrendingMarkets(limit = 10) {
  */
 export async function searchMarketsFulltext(query, limit = 5) {
   // Fetch a larger batch and search through them
-  const response = await axios.get(`${BASE_URL}/markets`, {
+  const response = await api.get('/markets', {
     params: {
       closed: false,
       active: true,
@@ -124,12 +134,12 @@ export function formatVolume(volume) {
  */
 export async function getMarketById(marketId) {
   try {
-    const response = await axios.get(`${BASE_URL}/markets/${marketId}`);
+    const response = await api.get(`/markets/${marketId}`);
     return response.data;
   } catch (err) {
     // Try as condition ID
     try {
-      const response = await axios.get(`${BASE_URL}/markets`, {
+      const response = await api.get('/markets', {
         params: {
           id: marketId,
           closed: false,
