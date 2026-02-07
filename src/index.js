@@ -2389,6 +2389,91 @@ _Full command list: /help_`, {
     });
 }
 
+// ============ SMART TEXT HANDLING ============
+
+// Handle bare text (non-commands)
+bot.on('message:text', async (ctx) => {
+  const text = ctx.message.text?.trim();
+  
+  // Skip if it starts with / (it's a command)
+  if (!text || text.startsWith('/')) return;
+  
+  const lowerText = text.toLowerCase();
+  
+  // Common words → redirect to commands
+  if (lowerText === 'help' || lowerText === '?') {
+    const keyboard = new InlineKeyboard()
+      .text('🔥 Trending', 'action:trending')
+      .text('🔍 Categories', 'action:categories')
+      .row()
+      .text('💰 Portfolio', 'action:portfolio')
+      .text('❓ Commands', 'action:help');
+    return ctx.reply('Need help? Tap a button below or type /help:', {
+      reply_markup: keyboard,
+    });
+  }
+  
+  if (lowerText === 'menu' || lowerText === 'start' || lowerText === 'home') {
+    const keyboard = new InlineKeyboard()
+      .text('🔥 Trending Markets', 'action:trending')
+      .text('🔍 Browse Categories', 'action:categories')
+      .row()
+      .text('💰 My Portfolio', 'action:portfolio')
+      .text('⭐ Go Premium', 'action:upgrade');
+    return ctx.reply('📊 *PolyPulse Menu*', {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+  
+  if (lowerText === 'trending' || lowerText === 'hot' || lowerText === 'top') {
+    return ctx.reply('Use /trending to see the hottest markets right now!');
+  }
+  
+  // If text is 3+ chars, try searching for a market
+  if (text.length >= 3) {
+    await ctx.replyWithChatAction('typing');
+    
+    try {
+      const markets = await searchMarketsFulltext(text, 1);
+      
+      if (markets.length > 0) {
+        const market = markets[0];
+        const outcomes = parseOutcomes(market);
+        const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
+        const pct = yesOutcome?.pct || '—';
+        const title = truncate(market.question, 55);
+        const marketId = market.id || market.slug;
+        
+        const keyboard = new InlineKeyboard()
+          .text('🔔 Set Alert', `alert:${marketId}`)
+          .text('👀 Watch', `watch:${marketId}`)
+          .row()
+          .text('🔥 Trending', 'action:trending')
+          .text('🔍 Browse', 'action:categories');
+
+        return ctx.reply(`📊 *${escapeMarkdown(title)}*\n\nYES: *${escapeMarkdown(pct)}*\n\n_Tap below to track:_`, {
+          parse_mode: 'MarkdownV2',
+          reply_markup: keyboard,
+        });
+      }
+    } catch (err) {
+      console.error('Smart text search error:', err.message);
+    }
+  }
+  
+  // Fallback: suggest actions
+  const keyboard = new InlineKeyboard()
+    .text('🔥 Trending', 'action:trending')
+    .text('🔍 Browse', 'action:categories')
+    .text('❓ Help', 'action:help');
+  
+  await ctx.reply(
+    `I couldn't find "${escapeMarkdown(truncate(text, 20))}"\n\n_Try a market name like "bitcoin" or tap below:_`,
+    { parse_mode: 'MarkdownV2', reply_markup: keyboard }
+  );
+});
+
 // ============ ALERT POLLING ============
 
 async function checkAlerts() {
