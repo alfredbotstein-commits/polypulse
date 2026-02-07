@@ -735,6 +735,8 @@ export function formatWhaleAlert(event, stats = null, tier = null) {
 
 /**
  * Format whale list for /whales command
+ * Shows recent large bets with tiered emojis:
+ * 🐋🐋🐋 = $1M+, 🐋🐋 = $500K+, 🐋 = $100K+, 🦈 = $50K+, 🐬 = $10K+, 🐟 = <$10K
  */
 export function formatWhaleList(whales, minAmount = 10000) {
   if (!whales || whales.length === 0) {
@@ -754,10 +756,17 @@ export function formatWhaleList(whales, minAmount = 10000) {
     msg += `${tier} *${escapeMarkdown(amount)}* on *${escapeMarkdown(side)}*\n`;
     msg += `   _${escapeMarkdown(title)}_\n`;
     
-    // Time ago
+    // Trader name and time ago
+    let meta = '';
+    if (w.traderName) {
+      meta += `👤 ${w.traderName}`;
+    }
     if (w.timestamp) {
       const ago = getTimeAgo(w.timestamp * 1000);
-      msg += `   ${escapeMarkdown(ago)}\n`;
+      meta += meta ? ` • ${ago}` : ago;
+    }
+    if (meta) {
+      msg += `   ${escapeMarkdown(meta)}\n`;
     }
     msg += `\n`;
   }

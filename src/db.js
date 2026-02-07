@@ -737,6 +737,11 @@ export async function logWhaleEvent(event) {
       odds_before: event.oddsBefore,
       odds_after: event.oddsAfter,
       tx_hash: event.txHash,
+      // New fields from data-api.polymarket.com/trades
+      trader_name: event.traderName || null,
+      trader_wallet: event.traderWallet || null,
+      shares: event.shares || null,
+      price: event.price || null,
     })
     .select()
     .single();
