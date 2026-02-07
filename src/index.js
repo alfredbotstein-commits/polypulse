@@ -1726,6 +1726,12 @@ bot.on('callback_query:data', async (ctx) => {
   } else if (data.startsWith('watch:')) {
     const marketId = data.replace('watch:', '');
     await handleWatchAdd(ctx, marketId);
+  } else if (data.startsWith('briefing:')) {
+    const action = data.replace('briefing:', '');
+    await handleBriefingAction(ctx, action);
+  } else if (data.startsWith('whale:')) {
+    const action = data.replace('whale:', '');
+    await handleWhaleAction(ctx, action);
   }
 });
 
@@ -1764,6 +1770,12 @@ async function handleMainAction(ctx, action) {
       break;
     case 'watchlist_full':
       await showWatchlistFull(ctx);
+      break;
+    case 'briefing_setup':
+      await showBriefingSetup(ctx);
+      break;
+    case 'whale_setup':
+      await showWhaleSetup(ctx);
       break;
     default:
       await ctx.reply('Unknown action. Try /start');
@@ -2622,6 +2634,167 @@ async function showPortfolioFull(ctx) {
       reply_markup: keyboard,
     });
   }
+}
+
+// Show briefing setup for premium users
+async function showBriefingSetup(ctx) {
+  if (!ctx.isPremium) {
+    return showUpgradePrompt(ctx);
+  }
+
+  const prefs = await getBriefingPrefs(ctx.from.id);
+  const enabled = prefs?.enabled ?? false;
+  const hour = prefs?.send_hour ?? 8;
+  const tz = prefs?.timezone || 'UTC';
+
+  const keyboard = new InlineKeyboard()
+    .text(enabled ? '❌ Disable' : '✅ Enable', enabled ? 'briefing:off' : 'briefing:on')
+    .row()
+    .text('🏠 Home', 'action:back_home');
+
+  await ctx.editMessageText(`*☀️ Morning Briefing*
+
+Status: ${enabled ? '✅ Enabled' : '❌ Disabled'}
+Time: ${hour}:00 ${escapeMarkdown(tz)}
+
+Your daily briefing includes:
+• Watchlist updates with price changes
+• Triggered alerts summary
+• Top 5 market movers
+
+_Set timezone: /timezone EST_
+_Set time: /briefing time 7am_`, {
+    parse_mode: 'MarkdownV2',
+    reply_markup: keyboard,
+  });
+}
+
+// Show whale setup for premium users
+async function showWhaleSetup(ctx) {
+  if (!ctx.isPremium) {
+    return showUpgradePrompt(ctx);
+  }
+
+  const prefs = await getWhalePrefs(ctx.from.id);
+  const enabled = prefs?.enabled ?? false;
+  const threshold = prefs?.min_amount || 50000;
+  const thresholdK = (threshold / 1000).toFixed(0);
+
+  const keyboard = new InlineKeyboard()
+    .text(enabled ? '❌ Disable' : '✅ Enable ($50K+)', enabled ? 'whale:off' : 'whale:on')
+    .row()
+    .text('$100K+', 'whale:100k')
+    .text('$250K+', 'whale:250k')
+    .text('$500K+', 'whale:500k')
+    .row()
+    .text('🏠 Home', 'action:back_home');
+
+  await ctx.editMessageText(`*🐋 Whale Alerts*
+
+Status: ${enabled ? '✅ Enabled' : '❌ Disabled'}
+Threshold: $${escapeMarkdown(thresholdK)}K\\+
+
+Get notified when whales place big bets on Polymarket\\. See where the smart money is going\\.
+
+_Or use: /whale 100k_`, {
+    parse_mode: 'MarkdownV2',
+    reply_markup: keyboard,
+  });
+}
+
+// Handle briefing toggle actions
+async function handleBriefingAction(ctx, action) {
+  if (!ctx.isPremium) {
+    return showUpgradePrompt(ctx);
+  }
+
+  try {
+    if (action === 'on') {
+      await upsertBriefingPrefs(ctx.from.id, { enabled: true });
+      const keyboard = new InlineKeyboard()
+        .text('⚙️ Settings', 'action:briefing_setup')
+        .text('🏠 Home', 'action:back_home');
+      
+      await ctx.editMessageText(`*✅ Briefing Enabled\\!*
+
+You'll receive your daily market briefing every morning\\.
+
+_Adjust time with /briefing time 7am_`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    } else if (action === 'off') {
+      await upsertBriefingPrefs(ctx.from.id, { enabled: false });
+      const keyboard = new InlineKeyboard()
+        .text('✅ Re-enable', 'briefing:on')
+        .text('🏠 Home', 'action:back_home');
+      
+      await ctx.editMessageText(`*❌ Briefing Disabled*
+
+Re\\-enable anytime: /briefing on`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+  } catch (err) {
+    console.error('Briefing action error:', err);
+    await ctx.editMessageText('❌ Could not update briefing settings\\.', { parse_mode: 'MarkdownV2' });
+  }
+}
+
+// Handle whale alert actions
+async function handleWhaleAction(ctx, action) {
+  if (!ctx.isPremium) {
+    return showUpgradePrompt(ctx);
+  }
+
+  try {
+    if (action === 'on') {
+      await setWhaleEnabled(ctx.from.id, true, 50000);
+      return showWhaleConfirm(ctx, 50000);
+    } else if (action === 'off') {
+      await setWhaleEnabled(ctx.from.id, false);
+      const keyboard = new InlineKeyboard()
+        .text('✅ Re-enable', 'whale:on')
+        .text('🏠 Home', 'action:back_home');
+      
+      await ctx.editMessageText(`*❌ Whale Alerts Disabled*
+
+Re\\-enable anytime: /whale on`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    } else if (action === '100k') {
+      await setWhaleEnabled(ctx.from.id, true, 100000);
+      return showWhaleConfirm(ctx, 100000);
+    } else if (action === '250k') {
+      await setWhaleEnabled(ctx.from.id, true, 250000);
+      return showWhaleConfirm(ctx, 250000);
+    } else if (action === '500k') {
+      await setWhaleEnabled(ctx.from.id, true, 500000);
+      return showWhaleConfirm(ctx, 500000);
+    }
+  } catch (err) {
+    console.error('Whale action error:', err);
+    await ctx.editMessageText('❌ Could not update whale settings\\.', { parse_mode: 'MarkdownV2' });
+  }
+}
+
+// Show whale enabled confirmation
+async function showWhaleConfirm(ctx, threshold) {
+  const thresholdK = (threshold / 1000).toFixed(0);
+  const keyboard = new InlineKeyboard()
+    .text('⚙️ Adjust Threshold', 'action:whale_setup')
+    .text('🏠 Home', 'action:back_home');
+  
+  await ctx.editMessageText(`*🐋 Whale Alerts Enabled\\!*
+
+You'll be notified when bets of *$${escapeMarkdown(thresholdK)}K\\+* are placed\\.
+
+_Adjust with /whale 100k or buttons above_`, {
+    parse_mode: 'MarkdownV2',
+    reply_markup: keyboard,
+  });
 }
 
 // Show help menu with buttons
