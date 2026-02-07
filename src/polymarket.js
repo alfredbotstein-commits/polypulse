@@ -77,27 +77,11 @@ async function fetchTrendingEvents(limit = 50) {
 }
 
 /**
- * Search markets using the REAL Polymarket search API
- * GET https://gamma-api.polymarket.com/search?query=X
+ * Search markets - uses local search on cached markets
+ * The /search API requires auth, so we search locally
  */
 export async function searchMarketsFulltext(query, limit = 5) {
-  try {
-    // Use the real search endpoint!
-    const response = await api.get('/search', {
-      params: { query: query.trim() },
-    });
-    
-    const markets = response.data || [];
-    
-    // Filter to only active/open markets
-    const activeMarkets = markets.filter(m => !m.closed && m.active !== false);
-    
-    return activeMarkets.slice(0, limit);
-  } catch (err) {
-    console.error('Search API error, falling back to local:', err.message);
-    // Fallback to local search
-    return searchMarketsLocal(query, limit);
-  }
+  return searchMarketsLocal(query, limit);
 }
 
 /**
