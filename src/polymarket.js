@@ -48,14 +48,30 @@ async function getCachedOrFetch(key, fetchFn) {
 }
 
 /**
- * Fetch all active markets (cached)
+ * Fetch all active markets (cached) - with pagination to get more than 500
  */
 async function fetchAllMarkets() {
   return getCachedOrFetch('markets', async () => {
-    const response = await api.get('/markets', {
-      params: { closed: false, active: true, limit: 500 },
-    });
-    return response.data;
+    const allMarkets = [];
+    let offset = 0;
+    const limit = 500;
+    const maxPages = 4; // Fetch up to 2000 markets
+    
+    for (let page = 0; page < maxPages; page++) {
+      const response = await api.get('/markets', {
+        params: { closed: false, active: true, limit, offset },
+      });
+      const markets = response.data;
+      if (!markets || markets.length === 0) break;
+      
+      allMarkets.push(...markets);
+      offset += limit;
+      
+      // If we got fewer than limit, we've reached the end
+      if (markets.length < limit) break;
+    }
+    
+    return allMarkets;
   });
 }
 
@@ -473,14 +489,30 @@ export function enrichMarket(market) {
  * Get market by ID
  */
 export async function getMarketById(marketId) {
+  if (!marketId) {
+    console.error('getMarketById called with empty marketId');
+    return null;
+  }
+  
+  // First try direct API lookup (works with numeric IDs)
   try {
     const response = await api.get(`/markets/${marketId}`);
     return response.data;
-  } catch {
-    // Try searching for it
-    const markets = await fetchAllMarkets();
-    return markets.find(m => m.id === marketId || m.slug === marketId) || null;
+  } catch (err) {
+    console.log(`Direct API lookup failed for ${marketId}: ${err.message}`);
   }
+  
+  // Fallback: search in cached markets (now fetches up to 2000 markets)
+  try {
+    const markets = await fetchAllMarkets();
+    const found = markets.find(m => m.id === marketId || m.slug === marketId);
+    if (found) return found;
+  } catch (err) {
+    console.error(`Cache search failed for ${marketId}: ${err.message}`);
+  }
+  
+  console.error(`Market not found: ${marketId}`);
+  return null;
 }
 
 // ============ CLOB API for Price History ============
