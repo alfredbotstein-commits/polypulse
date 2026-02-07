@@ -665,4 +665,156 @@ export function formatWhaleDisabled() {
 _Re\\-enable anytime: /whale on_`;
 }
 
+// ============ PORTFOLIO TRACKER ============
+
+/**
+ * Format portfolio view with P&L
+ */
+export function formatPortfolio(positions, totalStats) {
+  if (!positions || positions.length === 0) {
+    return `💼 *Your Portfolio*
+
+_No open positions\\._
+
+*Log a trade:*
+\`/buy bitcoin\\-100k 100 0\\.54\` — Log buying 100 shares at 54¢
+\`/sell bitcoin\\-100k 50 0\\.73\` — Log selling 50 shares at 73¢
+
+_Track your real Polymarket positions and see real\\-time P&L\\._`;
+  }
+
+  let msg = `💼 *YOUR PORTFOLIO*\n\n`;
+
+  // Position list
+  positions.forEach((pos, i) => {
+    const name = truncate(pos.market_title, 35);
+    const shares = pos.pnl.shares.toFixed(0);
+    const entryPct = (pos.pnl.entryPrice * 100).toFixed(0);
+    const currentPct = (pos.pnl.currentPrice * 100).toFixed(0);
+    const pnl = pos.pnl.pnl >= 0 ? `+$${pos.pnl.pnl.toFixed(2)}` : `-$${Math.abs(pos.pnl.pnl).toFixed(2)}`;
+    const pnlPct = pos.pnl.pnlPercent >= 0 ? `+${pos.pnl.pnlPercent.toFixed(1)}%` : `${pos.pnl.pnlPercent.toFixed(1)}%`;
+    const emoji = pos.pnl.pnl >= 0 ? '🟢' : '🔴';
+
+    msg += `*${i + 1}\\.* ${escapeMarkdown(name)}\n`;
+    msg += `   ${pos.side} ${shares} @ ${entryPct}¢ → ${currentPct}¢\n`;
+    msg += `   ${emoji} *${escapeMarkdown(pnl)}* \\(${escapeMarkdown(pnlPct)}\\)\n\n`;
+  });
+
+  // Summary
+  msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+  msg += `💰 *Total invested:* $${escapeMarkdown(totalStats.invested.toFixed(2))}\n`;
+  msg += `📊 *Current value:* $${escapeMarkdown(totalStats.currentValue.toFixed(2))}\n`;
+  
+  const totalPnlStr = totalStats.pnl >= 0 
+    ? `+$${totalStats.pnl.toFixed(2)}` 
+    : `-$${Math.abs(totalStats.pnl).toFixed(2)}`;
+  const totalPnlPct = totalStats.pnlPercent >= 0 
+    ? `+${totalStats.pnlPercent.toFixed(1)}%` 
+    : `${totalStats.pnlPercent.toFixed(1)}%`;
+  const totalEmoji = totalStats.pnl >= 0 ? '🟢' : '🔴';
+
+  msg += `${totalEmoji} *Total P&L:* ${escapeMarkdown(totalPnlStr)} \\(${escapeMarkdown(totalPnlPct)}\\)\n\n`;
+
+  // Best/worst
+  if (positions.length > 1) {
+    const sorted = [...positions].sort((a, b) => b.pnl.pnlPercent - a.pnl.pnlPercent);
+    const best = sorted[0];
+    const worst = sorted[sorted.length - 1];
+
+    if (best.pnl.pnlPercent > 0) {
+      msg += `📈 *Best:* ${escapeMarkdown(truncate(best.market_title, 25))} \\(${escapeMarkdown(`+${best.pnl.pnlPercent.toFixed(1)}%`)}\\)\n`;
+    }
+    if (worst.pnl.pnlPercent < 0) {
+      msg += `📉 *Worst:* ${escapeMarkdown(truncate(worst.market_title, 25))} \\(${escapeMarkdown(`${worst.pnl.pnlPercent.toFixed(1)}%`)}\\)\n`;
+    }
+  }
+
+  return msg;
+}
+
+/**
+ * Format quick P&L summary
+ */
+export function formatPnLSummary(totalStats, positionCount) {
+  const pnlStr = totalStats.pnl >= 0 
+    ? `+$${totalStats.pnl.toFixed(2)}` 
+    : `-$${Math.abs(totalStats.pnl).toFixed(2)}`;
+  const pctStr = totalStats.pnlPercent >= 0 
+    ? `+${totalStats.pnlPercent.toFixed(1)}%` 
+    : `${totalStats.pnlPercent.toFixed(1)}%`;
+  const emoji = totalStats.pnl >= 0 ? '🟢' : '🔴';
+
+  let msg = `${emoji} *Quick P&L*\n\n`;
+  msg += `*Total P&L:* ${escapeMarkdown(pnlStr)} \\(${escapeMarkdown(pctStr)}\\)\n`;
+  msg += `*Invested:* $${escapeMarkdown(totalStats.invested.toFixed(2))}\n`;
+  msg += `*Current:* $${escapeMarkdown(totalStats.currentValue.toFixed(2))}\n`;
+  msg += `*Positions:* ${positionCount} open\n\n`;
+  msg += `_See details: /portfolio_`;
+
+  return msg;
+}
+
+/**
+ * Format buy confirmation
+ */
+export function formatBuyConfirmation(position, isNewPosition) {
+  const shares = parseFloat(position.shares).toFixed(0);
+  const entryPct = (parseFloat(position.entry_price) * 100).toFixed(0);
+  const cost = (parseFloat(position.shares) * parseFloat(position.entry_price)).toFixed(2);
+
+  let msg = `✅ *${isNewPosition ? 'Position opened' : 'Added to position'}\\!*\n\n`;
+  msg += `📊 ${escapeMarkdown(truncate(position.market_title, 50))}\n`;
+  msg += `${escapeMarkdown(position.side)} ${shares} shares @ ${entryPct}¢\n`;
+  msg += `Cost basis: $${escapeMarkdown(cost)}\n\n`;
+  msg += `_View portfolio: /portfolio_`;
+
+  return msg;
+}
+
+/**
+ * Format sell confirmation
+ */
+export function formatSellConfirmation(position, soldShares, sellPrice, pnl, fullyClosed) {
+  const shares = parseFloat(soldShares).toFixed(0);
+  const pricePct = (parseFloat(sellPrice) * 100).toFixed(0);
+  const proceeds = (parseFloat(soldShares) * parseFloat(sellPrice)).toFixed(2);
+  
+  const pnlStr = pnl >= 0 ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
+  const emoji = pnl >= 0 ? '🟢' : '🔴';
+
+  let msg = `✅ *${fullyClosed ? 'Position closed' : 'Partial sell'}\\!*\n\n`;
+  msg += `📊 ${escapeMarkdown(truncate(position.market_title, 50))}\n`;
+  msg += `Sold ${shares} shares @ ${pricePct}¢\n`;
+  msg += `Proceeds: $${escapeMarkdown(proceeds)}\n`;
+  msg += `${emoji} P&L on sale: ${escapeMarkdown(pnlStr)}\n`;
+
+  if (!fullyClosed) {
+    const remaining = parseFloat(position.shares).toFixed(0);
+    msg += `\n_${remaining} shares remaining\\._`;
+  }
+
+  msg += `\n\n_View portfolio: /portfolio_`;
+
+  return msg;
+}
+
+/**
+ * Format portfolio upsell for free users
+ */
+export function formatPortfolioUpsell() {
+  return `💼 *Portfolio Tracker*
+
+Track your real Polymarket positions with real\\-time P&L\\.
+
+*What you can do:*
+• Log buys and sells
+• See live P&L on each position
+• Get alerts when positions hit targets
+
+*Free:* 1 position max
+*Premium:* Unlimited positions \\+ P&L alerts
+
+_Upgrade to track your full portfolio → /upgrade_`;
+}
+
 export { parseOutcomes };

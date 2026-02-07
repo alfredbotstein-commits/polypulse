@@ -764,4 +764,249 @@ export async function getMarketWhaleStats(marketId) {
   return { yesVolume, noVolume, count: data.length };
 }
 
+// ============ PORTFOLIO TRACKER ============
+
+/**
+ * Get user's open positions
+ */
+export async function getPositions(telegramId, status = 'open') {
+  const { data } = await supabase
+    .from('pp_positions')
+    .select('*')
+    .eq('user_id', telegramId)
+    .eq('status', status)
+    .order('created_at', { ascending: false });
+
+  return data || [];
+}
+
+/**
+ * Get all positions (open + closed) for a user
+ */
+export async function getAllPositions(telegramId) {
+  const { data } = await supabase
+    .from('pp_positions')
+    .select('*')
+    .eq('user_id', telegramId)
+    .order('created_at', { ascending: false });
+
+  return data || [];
+}
+
+/**
+ * Get position by ID
+ */
+export async function getPositionById(positionId) {
+  const { data } = await supabase
+    .from('pp_positions')
+    .select('*')
+    .eq('id', positionId)
+    .single();
+
+  return data || null;
+}
+
+/**
+ * Find position by market ID for a user
+ */
+export async function findPositionByMarket(telegramId, marketId) {
+  const { data } = await supabase
+    .from('pp_positions')
+    .select('*')
+    .eq('user_id', telegramId)
+    .ilike('market_id', `%${marketId}%`)
+    .eq('status', 'open')
+    .limit(1);
+
+  return data?.[0] || null;
+}
+
+/**
+ * Create a new position (buy)
+ */
+export async function createPosition(telegramId, marketId, marketTitle, side, shares, entryPrice) {
+  const { data, error } = await supabase
+    .from('pp_positions')
+    .insert({
+      user_id: telegramId,
+      market_id: marketId,
+      market_title: marketTitle,
+      side: side.toUpperCase(),
+      shares,
+      entry_price: entryPrice,
+      status: 'open',
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Log the trade
+  await logTrade(telegramId, data.id, 'buy', shares, entryPrice);
+
+  return data;
+}
+
+/**
+ * Update position shares (add to existing position)
+ */
+export async function addToPosition(positionId, additionalShares, price, telegramId) {
+  const position = await getPositionById(positionId);
+  if (!position) throw new Error('Position not found');
+
+  // Calculate new average entry price
+  const totalCost = (position.shares * position.entry_price) + (additionalShares * price);
+  const newShares = parseFloat(position.shares) + parseFloat(additionalShares);
+  const newEntryPrice = totalCost / newShares;
+
+  const { data, error } = await supabase
+    .from('pp_positions')
+    .update({
+      shares: newShares,
+      entry_price: newEntryPrice,
+    })
+    .eq('id', positionId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Log the trade
+  await logTrade(telegramId, positionId, 'buy', additionalShares, price);
+
+  return data;
+}
+
+/**
+ * Reduce position shares (sell)
+ */
+export async function reducePosition(positionId, sellShares, price, telegramId) {
+  const position = await getPositionById(positionId);
+  if (!position) throw new Error('Position not found');
+
+  const currentShares = parseFloat(position.shares);
+  const selling = parseFloat(sellShares);
+
+  if (selling > currentShares) {
+    throw new Error(`Cannot sell ${selling} shares, only ${currentShares} available`);
+  }
+
+  const remainingShares = currentShares - selling;
+
+  // Log the trade first
+  await logTrade(telegramId, positionId, 'sell', selling, price);
+
+  if (remainingShares <= 0) {
+    // Close the position
+    const { data, error } = await supabase
+      .from('pp_positions')
+      .update({
+        shares: 0,
+        status: 'closed',
+        closed_at: new Date().toISOString(),
+      })
+      .eq('id', positionId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { ...data, fullyClosed: true };
+  } else {
+    // Partial sell
+    const { data, error } = await supabase
+      .from('pp_positions')
+      .update({ shares: remainingShares })
+      .eq('id', positionId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { ...data, fullyClosed: false };
+  }
+}
+
+/**
+ * Log a trade
+ */
+export async function logTrade(telegramId, positionId, action, shares, price) {
+  const { data, error } = await supabase
+    .from('pp_trades')
+    .insert({
+      user_id: telegramId,
+      position_id: positionId,
+      action,
+      shares,
+      price,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Get trade history for a user
+ */
+export async function getTradeHistory(telegramId, limit = 20) {
+  const { data } = await supabase
+    .from('pp_trades')
+    .select('*, pp_positions(market_title, side)')
+    .eq('user_id', telegramId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  return data || [];
+}
+
+/**
+ * Get trade history for a position
+ */
+export async function getPositionTrades(positionId) {
+  const { data } = await supabase
+    .from('pp_trades')
+    .select('*')
+    .eq('position_id', positionId)
+    .order('created_at', { ascending: true });
+
+  return data || [];
+}
+
+/**
+ * Count user's open positions
+ */
+export async function countOpenPositions(telegramId) {
+  const { count } = await supabase
+    .from('pp_positions')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', telegramId)
+    .eq('status', 'open');
+
+  return count || 0;
+}
+
+/**
+ * Calculate P&L for a position given current price
+ */
+export function calculatePositionPnL(position, currentPrice) {
+  const shares = parseFloat(position.shares);
+  const entryPrice = parseFloat(position.entry_price);
+  const current = parseFloat(currentPrice);
+  
+  const costBasis = shares * entryPrice;
+  const currentValue = shares * current;
+  const pnl = currentValue - costBasis;
+  const pnlPercent = costBasis > 0 ? ((currentValue / costBasis) - 1) * 100 : 0;
+
+  return {
+    shares,
+    entryPrice,
+    currentPrice: current,
+    costBasis,
+    currentValue,
+    pnl,
+    pnlPercent,
+  };
+}
+
 export { supabase };

@@ -18,6 +18,7 @@ export const CONFIG = {
     search: 5,
     alerts: 3,
     watchlist: 5,
+    positions: 1,
   },
   
   // Premium = unlimited

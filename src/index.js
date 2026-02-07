@@ -33,6 +33,13 @@ import {
   getWhalePrefs,
   upsertWhalePrefs,
   setWhaleEnabled,
+  getPositions,
+  findPositionByMarket,
+  createPosition,
+  addToPosition,
+  reducePosition,
+  countOpenPositions,
+  calculatePositionPnL,
 } from './db.js';
 import {
   searchMarketsFulltext,
@@ -59,6 +66,11 @@ import {
   formatWhaleSettings,
   formatWhaleEnabled,
   formatWhaleDisabled,
+  formatPortfolio,
+  formatPnLSummary,
+  formatBuyConfirmation,
+  formatSellConfirmation,
+  formatPortfolioUpsell,
 } from './format.js';
 
 // Initialize bot
@@ -122,12 +134,18 @@ bot.command('help', async (ctx) => {
 /whale 100k — Only alert $100K\\+ bets
 /whale off — Disable alerts
 
+*Portfolio Tracker*
+/portfolio — View all positions with P&L
+/buy bitcoin 100 0\\.54 — Log buying 100 shares at 54¢
+/sell bitcoin 50 0\\.73 — Log selling 50 shares at 73¢
+/pnl — Quick P&L summary
+
 *Account*
 /account — Check my subscription status
 /upgrade — Get Premium \\($9\\.99/mo\\)
 
-_Free users: 3 alerts, 5 watchlist, 10 price checks/day_
-_Premium: Unlimited \\+ Morning Briefing \\+ Whale Alerts_`;
+_Free: 3 alerts, 5 watchlist, 1 position, 10 price checks/day_
+_Premium: Unlimited \\+ Briefing \\+ Whales \\+ Portfolio_`;
 
   await ctx.reply(msg, { parse_mode: 'MarkdownV2' });
 });
@@ -757,6 +775,313 @@ bot.command('whale', async (ctx) => {
     '❌ Invalid command\\. Try:\n`/whale on` — Enable \\($50K\\+\\)\n`/whale 100k` — Only $100K\\+ bets\n`/whale off` — Disable',
     { parse_mode: 'MarkdownV2' }
   );
+});
+
+// ============ PORTFOLIO COMMANDS ============
+
+// /portfolio - View all positions with P&L
+bot.command('portfolio', async (ctx) => {
+  // Free users get 1 position, premium unlimited
+  const positionCount = await countOpenPositions(ctx.from.id);
+  
+  if (positionCount === 0) {
+    return ctx.reply(formatPortfolioUpsell(), { parse_mode: 'MarkdownV2' });
+  }
+
+  await ctx.replyWithChatAction('typing');
+
+  try {
+    const positions = await getPositions(ctx.from.id);
+    
+    // Enrich with current prices
+    const enrichedPositions = [];
+    let totalInvested = 0;
+    let totalCurrentValue = 0;
+
+    for (const pos of positions) {
+      try {
+        // Get current price from Polymarket
+        const markets = await searchMarketsFulltext(pos.market_id, 1);
+        let currentPrice = parseFloat(pos.entry_price); // fallback
+
+        if (markets.length > 0) {
+          const outcomes = parseOutcomes(markets[0]);
+          const outcome = outcomes.find(o => 
+            o.name.toUpperCase() === pos.side.toUpperCase()
+          ) || outcomes[0];
+          currentPrice = outcome?.price || currentPrice;
+        }
+
+        const pnl = calculatePositionPnL(pos, currentPrice);
+        enrichedPositions.push({ ...pos, pnl });
+        
+        totalInvested += pnl.costBasis;
+        totalCurrentValue += pnl.currentValue;
+      } catch {
+        // Use entry price as fallback
+        const pnl = calculatePositionPnL(pos, pos.entry_price);
+        enrichedPositions.push({ ...pos, pnl });
+        totalInvested += pnl.costBasis;
+        totalCurrentValue += pnl.currentValue;
+      }
+    }
+
+    const totalPnl = totalCurrentValue - totalInvested;
+    const totalPnlPercent = totalInvested > 0 ? ((totalCurrentValue / totalInvested) - 1) * 100 : 0;
+
+    const totalStats = {
+      invested: totalInvested,
+      currentValue: totalCurrentValue,
+      pnl: totalPnl,
+      pnlPercent: totalPnlPercent,
+    };
+
+    await ctx.reply(formatPortfolio(enrichedPositions, totalStats), { 
+      parse_mode: 'MarkdownV2',
+      disable_web_page_preview: true,
+    });
+  } catch (err) {
+    console.error('Portfolio error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// /buy <market> <shares> <price> - Log a buy
+bot.command('buy', async (ctx) => {
+  const args = ctx.match?.trim();
+
+  if (!args) {
+    return ctx.reply(
+`📈 *Log a Buy*
+
+Record a position you bought on Polymarket\\.
+
+*Format:* \`/buy market shares price\`
+
+*Examples:*
+\`/buy bitcoin\\-100k 100 0\\.54\` — 100 shares at 54¢
+\`/buy trump 200 0\\.31\` — 200 shares at 31¢
+\`/buy eth\\-etf 150 0\\.48\` — 150 shares at 48¢
+
+_The price is in decimal \\(0\\.54 = 54¢\\)_`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  // Parse: market shares price
+  const match = args.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s+(\d*\.?\d+)$/);
+  
+  if (!match) {
+    return ctx.reply(
+      '❌ Invalid format\\. Use: `/buy market shares price`\nExample: `/buy bitcoin 100 0\\.54`',
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  const marketQuery = match[1].trim();
+  const shares = parseFloat(match[2]);
+  const price = parseFloat(match[3]);
+
+  if (shares <= 0) {
+    return ctx.reply('❌ Shares must be positive\\.', { parse_mode: 'MarkdownV2' });
+  }
+
+  if (price <= 0 || price >= 1) {
+    return ctx.reply('❌ Price must be between 0 and 1 \\(e\\.g\\., 0\\.54 = 54¢\\)\\.', { parse_mode: 'MarkdownV2' });
+  }
+
+  // Check position limits for free users
+  if (!ctx.isPremium) {
+    const posCount = await countOpenPositions(ctx.from.id);
+    if (posCount >= 1) {
+      // Check if this would be adding to existing position
+      const existing = await findPositionByMarket(ctx.from.id, marketQuery);
+      if (!existing) {
+        return ctx.reply(formatPremiumUpsell('portfolio'), { parse_mode: 'MarkdownV2' });
+      }
+    }
+  }
+
+  await ctx.replyWithChatAction('typing');
+
+  try {
+    // Find the market
+    const markets = await searchMarketsFulltext(marketQuery, 1);
+    
+    if (markets.length === 0) {
+      return ctx.reply(formatError('notFound'), { parse_mode: 'MarkdownV2' });
+    }
+
+    const market = markets[0];
+    const marketId = market.id || market.slug;
+
+    // Check if user already has a position in this market
+    const existing = await findPositionByMarket(ctx.from.id, marketId);
+
+    let position;
+    let isNewPosition = true;
+
+    if (existing) {
+      // Add to existing position
+      position = await addToPosition(existing.id, shares, price, ctx.from.id);
+      isNewPosition = false;
+    } else {
+      // Create new position
+      position = await createPosition(
+        ctx.from.id,
+        marketId,
+        market.question,
+        'YES', // Default to YES side
+        shares,
+        price
+      );
+    }
+
+    await ctx.reply(formatBuyConfirmation(position, isNewPosition), { 
+      parse_mode: 'MarkdownV2' 
+    });
+  } catch (err) {
+    console.error('Buy error:', err);
+    await ctx.reply(`❌ ${escapeMarkdown(err.message || 'Could not log trade')}`, { 
+      parse_mode: 'MarkdownV2' 
+    });
+  }
+});
+
+// /sell <market> <shares> <price> - Log a sell
+bot.command('sell', async (ctx) => {
+  const args = ctx.match?.trim();
+
+  if (!args) {
+    return ctx.reply(
+`📉 *Log a Sell*
+
+Record a position you sold on Polymarket\\.
+
+*Format:* \`/sell market shares price\`
+
+*Examples:*
+\`/sell bitcoin\\-100k 50 0\\.73\` — Sold 50 shares at 73¢
+\`/sell trump 100 0\\.42\` — Sold 100 shares at 42¢
+
+_The price is in decimal \\(0\\.73 = 73¢\\)_`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  // Parse: market shares price
+  const match = args.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s+(\d*\.?\d+)$/);
+  
+  if (!match) {
+    return ctx.reply(
+      '❌ Invalid format\\. Use: `/sell market shares price`\nExample: `/sell bitcoin 50 0\\.73`',
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  const marketQuery = match[1].trim();
+  const shares = parseFloat(match[2]);
+  const price = parseFloat(match[3]);
+
+  if (shares <= 0) {
+    return ctx.reply('❌ Shares must be positive\\.', { parse_mode: 'MarkdownV2' });
+  }
+
+  if (price <= 0 || price >= 1) {
+    return ctx.reply('❌ Price must be between 0 and 1 \\(e\\.g\\., 0\\.73 = 73¢\\)\\.', { parse_mode: 'MarkdownV2' });
+  }
+
+  await ctx.replyWithChatAction('typing');
+
+  try {
+    // Find user's position in this market
+    const position = await findPositionByMarket(ctx.from.id, marketQuery);
+    
+    if (!position) {
+      return ctx.reply(
+        '❌ No open position found for that market\\. Check /portfolio',
+        { parse_mode: 'MarkdownV2' }
+      );
+    }
+
+    // Calculate P&L on this sale
+    const entryPrice = parseFloat(position.entry_price);
+    const saleProceeds = shares * price;
+    const costBasis = shares * entryPrice;
+    const pnlOnSale = saleProceeds - costBasis;
+
+    // Execute the sell
+    const result = await reducePosition(position.id, shares, price, ctx.from.id);
+
+    await ctx.reply(
+      formatSellConfirmation(result, shares, price, pnlOnSale, result.fullyClosed),
+      { parse_mode: 'MarkdownV2' }
+    );
+  } catch (err) {
+    console.error('Sell error:', err);
+    await ctx.reply(`❌ ${escapeMarkdown(err.message || 'Could not log trade')}`, { 
+      parse_mode: 'MarkdownV2' 
+    });
+  }
+});
+
+// /pnl - Quick P&L summary
+bot.command('pnl', async (ctx) => {
+  await ctx.replyWithChatAction('typing');
+
+  try {
+    const positions = await getPositions(ctx.from.id);
+    
+    if (positions.length === 0) {
+      return ctx.reply(
+        '📊 *No open positions*\n\n_Log a trade: /buy bitcoin 100 0\\.54_',
+        { parse_mode: 'MarkdownV2' }
+      );
+    }
+
+    let totalInvested = 0;
+    let totalCurrentValue = 0;
+
+    for (const pos of positions) {
+      try {
+        const markets = await searchMarketsFulltext(pos.market_id, 1);
+        let currentPrice = parseFloat(pos.entry_price);
+
+        if (markets.length > 0) {
+          const outcomes = parseOutcomes(markets[0]);
+          const outcome = outcomes.find(o => 
+            o.name.toUpperCase() === pos.side.toUpperCase()
+          ) || outcomes[0];
+          currentPrice = outcome?.price || currentPrice;
+        }
+
+        const pnl = calculatePositionPnL(pos, currentPrice);
+        totalInvested += pnl.costBasis;
+        totalCurrentValue += pnl.currentValue;
+      } catch {
+        const pnl = calculatePositionPnL(pos, pos.entry_price);
+        totalInvested += pnl.costBasis;
+        totalCurrentValue += pnl.currentValue;
+      }
+    }
+
+    const totalPnl = totalCurrentValue - totalInvested;
+    const totalPnlPercent = totalInvested > 0 ? ((totalCurrentValue / totalInvested) - 1) * 100 : 0;
+
+    const totalStats = {
+      invested: totalInvested,
+      currentValue: totalCurrentValue,
+      pnl: totalPnl,
+      pnlPercent: totalPnlPercent,
+    };
+
+    await ctx.reply(formatPnLSummary(totalStats, positions.length), { 
+      parse_mode: 'MarkdownV2' 
+    });
+  } catch (err) {
+    console.error('PnL error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
 });
 
 // /account - Subscription status
