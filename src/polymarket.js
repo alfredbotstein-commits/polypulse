@@ -431,16 +431,19 @@ export function formatVolume(volume) {
 export function formatPriceChange(change) {
   if (change === null || change === undefined) return { text: '—', indicator: '⚪' };
   
-  const pct = (change * 100).toFixed(1);
+  const pct = Math.abs(change * 100).toFixed(1);
   let indicator = '⚪';
   let text = `${pct}%`;
   
-  if (change > 0.001) {
-    indicator = '🟢';
-    text = `↑${pct}%`;
-  } else if (change < -0.001) {
-    indicator = '🔴';
-    text = `↓${Math.abs(pct)}%`;
+  if (change > 0.005) {
+    indicator = '📈';
+    text = `+${pct}%`;
+  } else if (change < -0.005) {
+    indicator = '📉';
+    text = `-${pct}%`;
+  } else {
+    indicator = '➖';
+    text = '0%';
   }
   
   return { text, indicator };
@@ -472,16 +475,19 @@ export function enrichMarket(market) {
   const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
   
   const priceChange = formatPriceChange(market.oneDayPriceChange);
+  const volume = formatVolume(market.volume24hr);
   
   return {
     ...market,
     outcomes,
     yesPrice: yesOutcome?.price || 0,
     yesPct: yesOutcome?.pct || '—',
-    volume: formatVolume(market.volume24hr),
+    volume,
     priceChange: priceChange.text,
     momentum: priceChange.indicator,
-    // Format: "73% YES — ↑4.2% (24h)"
+    // Rich price context: "73% YES · 📈 +4.2% (24h) · Vol: $2.4M"
+    priceContext: `${yesOutcome?.pct || '—'} YES · ${priceChange.indicator} ${priceChange.text} (24h) · Vol: ${volume}`,
+    // Legacy format for compatibility
     priceDisplay: `${yesOutcome?.pct || '—'} ${priceChange.indicator} ${priceChange.text}`,
   };
 }
@@ -572,8 +578,8 @@ export async function getMarketWithPriceContext(market) {
   
   // Default values
   let priceChange24h = null;
-  let momentum = '⚪';
-  let changeText = '—';
+  let momentum = '➖';
+  let changeText = '0%';
   
   // Try to get from market's oneDayPriceChange first (faster)
   if (market.oneDayPriceChange !== undefined && market.oneDayPriceChange !== null) {
@@ -592,29 +598,33 @@ export async function getMarketWithPriceContext(market) {
   
   // Format the change
   if (priceChange24h !== null) {
-    const pct = (priceChange24h * 100).toFixed(1);
+    const pct = Math.abs(priceChange24h * 100).toFixed(1);
     if (priceChange24h > 0.005) {
-      momentum = '🟢';
+      momentum = '📈';
       changeText = `+${pct}%`;
     } else if (priceChange24h < -0.005) {
-      momentum = '🔴';
-      changeText = `${pct}%`;
+      momentum = '📉';
+      changeText = `-${pct}%`;
     } else {
-      momentum = '⚪';
-      changeText = `${pct}%`;
+      momentum = '➖';
+      changeText = '0%';
     }
   }
+  
+  const volume = formatVolume(market.volume24hr);
   
   return {
     ...market,
     outcomes,
     yesPrice: yesOutcome?.price || 0,
     yesPct: yesOutcome?.pct || '—',
-    volume: formatVolume(market.volume24hr),
+    volume,
     priceChange24h,
     changeText,
     momentum,
-    // Formatted display: "73% 🟢 +4.2%"
+    // Rich price context: "73% YES · 📈 +4.2% (24h) · Vol: $2.4M"
+    priceContext: `${yesOutcome?.pct || '—'} YES · ${momentum} ${changeText} (24h) · Vol: ${volume}`,
+    // Legacy format
     priceDisplay: `${yesOutcome?.pct || '—'} ${momentum} ${changeText}`,
   };
 }

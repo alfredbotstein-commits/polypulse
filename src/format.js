@@ -52,16 +52,124 @@ export function generateSparkline(prices) {
 }
 
 /**
- * Get change indicator with color
+ * Get change indicator with momentum emoji
  */
 export function getChangeIndicator(change) {
-  const pct = (change * 100).toFixed(1);
-  if (change > 0.001) {
-    return { emoji: '🟢', arrow: '↑', text: `+${pct}%`, direction: 'up' };
-  } else if (change < -0.001) {
-    return { emoji: '🔴', arrow: '↓', text: `${pct}%`, direction: 'down' };
+  const pct = Math.abs(change * 100).toFixed(1);
+  if (change > 0.005) {
+    return { emoji: '📈', arrow: '↑', text: `+${pct}%`, direction: 'up' };
+  } else if (change < -0.005) {
+    return { emoji: '📉', arrow: '↓', text: `-${pct}%`, direction: 'down' };
   }
-  return { emoji: '⚪', arrow: '→', text: '0%', direction: 'flat' };
+  return { emoji: '➖', arrow: '→', text: '0%', direction: 'flat' };
+}
+
+/**
+ * Format rich price context for market display
+ * Output: "73% YES · 📈 +4.2% (24h) · Vol: $2.4M"
+ */
+export function formatPriceContext(market) {
+  // Parse outcomes if not already parsed
+  let yesPrice = market.yesPct || market.yesPrice;
+  if (!yesPrice && market.outcomePrices) {
+    const outcomes = parseOutcomes(market);
+    const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
+    yesPrice = yesOutcome?.pct || '—';
+  }
+  if (typeof yesPrice === 'number') {
+    yesPrice = `${(yesPrice * 100).toFixed(1)}%`;
+  }
+  
+  // Get 24h change
+  const change = market.oneDayPriceChange || 0;
+  const changeInfo = getChangeIndicator(change);
+  
+  // Get volume
+  const volume = market.volume || formatVolume(market.volume24hr || 0);
+  
+  return `${yesPrice} YES · ${changeInfo.emoji} ${changeInfo.text} (24h) · Vol: ${volume}`;
+}
+
+/**
+ * Format rich price context for escaped MarkdownV2 output
+ */
+export function formatPriceContextEscaped(market) {
+  const context = formatPriceContext(market);
+  return escapeMarkdown(context);
+}
+
+/**
+ * Format rich price context for a market
+ * Target format: "73% YES · 📈 +4.2% (24h) · Vol: $2.4M"
+ * 
+ * @param {object} market - Market object with price data
+ * @param {number} market.yesPrice - YES price as decimal (0-1)
+ * @param {number} market.oneDayPriceChange - 24h price change as decimal
+ * @param {number} market.volume24hr - 24h volume in USD
+ * @returns {object} - Formatted price context parts
+ */
+export function formatMarketPriceContext(market) {
+  // Parse YES price
+  let yesPct = '—';
+  let yesPrice = 0;
+  
+  if (market.outcomePrices) {
+    try {
+      const prices = JSON.parse(market.outcomePrices);
+      const outcomes = JSON.parse(market.outcomes || '["Yes","No"]');
+      const yesIdx = outcomes.findIndex(o => o.toLowerCase() === 'yes');
+      if (yesIdx !== -1 && prices[yesIdx] !== undefined) {
+        yesPrice = parseFloat(prices[yesIdx]);
+        yesPct = `${(yesPrice * 100).toFixed(0)}%`;
+      }
+    } catch {}
+  } else if (market.yesPrice !== undefined) {
+    yesPrice = market.yesPrice;
+    yesPct = `${(yesPrice * 100).toFixed(0)}%`;
+  }
+  
+  // Parse 24h change
+  const change = market.oneDayPriceChange ?? null;
+  let changeText = '—';
+  let changeEmoji = '➖';
+  
+  if (change !== null && change !== undefined && !isNaN(change)) {
+    const pct = (change * 100).toFixed(1);
+    if (change > 0.005) {
+      changeEmoji = '📈';
+      changeText = `+${pct}%`;
+    } else if (change < -0.005) {
+      changeEmoji = '📉';
+      changeText = `${pct}%`;
+    } else {
+      changeEmoji = '➖';
+      changeText = '0%';
+    }
+  }
+  
+  // Format volume
+  const vol = formatVolume(market.volume24hr || 0);
+  
+  // Build the full display string (for use in plain text)
+  // Format: "73% YES · 📈 +4.2% (24h) · Vol: $2.4M"
+  const fullDisplay = `${yesPct} YES · ${changeEmoji} ${changeText} (24h) · Vol: ${vol}`;
+  
+  // Also return escaped version for MarkdownV2
+  const escapedDisplay = `${escapeMarkdown(yesPct)} YES · ${changeEmoji} ${escapeMarkdown(changeText)} \\(24h\\) · Vol: ${escapeMarkdown(vol)}`;
+  
+  return {
+    yesPct,
+    yesPrice,
+    change,
+    changeText,
+    changeEmoji,
+    volume: vol,
+    fullDisplay,
+    escapedDisplay,
+    // For inline formatting in message builders — matches target format:
+    // "73% YES · 📈 +4.2% (24h) · Vol: $2.4M"
+    inlineFormatted: `*${escapeMarkdown(yesPct)}* YES · ${changeEmoji} ${escapeMarkdown(changeText)} \\(24h\\) · Vol: ${escapeMarkdown(vol)}`,
+  };
 }
 
 /**
@@ -128,17 +236,11 @@ export function formatTrending(markets) {
   let msg = `*🔥 Trending Markets*\n\n`;
 
   markets.forEach((market, i) => {
-    const outcomes = parseOutcomes(market);
-    const yesPrice = outcomes.find(o => o.name.toLowerCase() === 'yes');
-    const change = getChangeIndicator(market.oneDayPriceChange || 0);
-    const volume = formatVolume(market.volume24hr || 0);
-    const insight = generateInsight(market);
-    
+    const priceCtx = formatMarketPriceContext(market);
     const question = truncate(market.question, 45);
     
     msg += `*${i + 1}\\. ${escapeMarkdown(question)}*\n`;
-    msg += `   ${change.emoji} *${escapeMarkdown(yesPrice?.pct || '—')}* ${escapeMarkdown(change.text)} ${change.arrow}\n`;
-    msg += `   💰 ${escapeMarkdown(volume)} · _${escapeMarkdown(insight)}_\n\n`;
+    msg += `   ${priceCtx.inlineFormatted}\n\n`;
   });
 
   msg += `_💡 Get details: /price Bitcoin_`;
@@ -282,22 +384,39 @@ Need help? Just ask\\!`;
 }
 
 /**
- * Format watchlist display
+ * Format watchlist display with rich price context
  */
 export function formatWatchlist(items, maxItems) {
   let msg = `*📋 Your Watchlist \\(${items.length}/${maxItems}\\)*\n\n`;
 
   items.forEach((item, i) => {
-    const name = truncate(item.market_name, 40);
-    const currentPct = escapeMarkdown((item.currentPrice * 100).toFixed(1) + '%');
+    const name = truncate(item.market_name, 35);
+    const currentPct = (item.currentPrice * 100).toFixed(0);
     const change = item.currentPrice - (item.added_price || 0);
-    const changePct = escapeMarkdown((change * 100).toFixed(1) + '%');
+    const changePct = (Math.abs(change) * 100).toFixed(1);
     
-    const changeEmoji = change > 0.001 ? '🟢' : change < -0.001 ? '🔴' : '⚪';
-    const changeSign = change > 0 ? '+' : '';
-
+    // Use 📈/📉 for momentum direction
+    const changeEmoji = change > 0.005 ? '📈' : change < -0.005 ? '📉' : '➖';
+    const changeSign = change > 0 ? '+' : change < 0 ? '-' : '';
+    
+    // Include 24h context if market data available
+    let priceContext = '';
+    if (item.market && item.market.oneDayPriceChange !== undefined) {
+      const dayChange = item.market.oneDayPriceChange;
+      const dayChangePct = (Math.abs(dayChange) * 100).toFixed(1);
+      const dayEmoji = dayChange > 0.005 ? '📈' : dayChange < -0.005 ? '📉' : '➖';
+      const daySign = dayChange > 0 ? '+' : dayChange < 0 ? '-' : '';
+      priceContext = ` · ${dayEmoji} ${escapeMarkdown(daySign)}${escapeMarkdown(dayChangePct)}% \\(24h\\)`;
+    }
+    
+    // Include volume if available
+    let volumeContext = '';
+    if (item.market && item.market.volume24hr) {
+      volumeContext = ` · Vol: ${escapeMarkdown(formatVolume(item.market.volume24hr))}`;
+    }
+    
     msg += `*${i + 1}\\.* ${escapeMarkdown(name)}\n`;
-    msg += `   YES: *${currentPct}* ${changeEmoji} ${escapeMarkdown(changeSign)}${changePct} since added\n\n`;
+    msg += `   *${escapeMarkdown(currentPct)}%* YES ${changeEmoji} ${escapeMarkdown(changeSign)}${escapeMarkdown(changePct)}% since added${priceContext}${volumeContext}\n\n`;
   });
 
   msg += `_Remove: /unwatch bitcoin_`;

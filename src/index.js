@@ -411,9 +411,9 @@ _I'll show you matching markets with current odds\\._`,
       const question = truncate(market.question, 40);
       const marketId = market.id || market.slug;
       
-      // Format with price change context
+      // Format with rich price context: "73% YES · 📈 +4.2% (24h) · Vol: $2.4M"
       msg += `*${i + 1}\\.* ${escapeMarkdown(question)}\n`;
-      msg += `   ${market.momentum} *${escapeMarkdown(market.yesPct)}* ${escapeMarkdown(market.priceChange)} \\(24h\\) · ${escapeMarkdown(market.volume)}\n\n`;
+      msg += `   *${escapeMarkdown(market.yesPct)}* YES · ${market.momentum} ${escapeMarkdown(market.priceChange)} \\(24h\\) · Vol: ${escapeMarkdown(market.volume)}\n\n`;
       
       // Add action buttons
       keyboard
@@ -1868,8 +1868,9 @@ async function handleSearchPagination(ctx, query, page) {
       const question = truncate(market.question, 40);
       const marketId = market.id || market.slug;
       
+      // Format with rich price context: "73% YES · 📈 +4.2% (24h) · Vol: $2.4M"
       msg += `*${startNum + i + 1}\\.* ${escapeMarkdown(question)}\n`;
-      msg += `   ${market.momentum} *${escapeMarkdown(market.yesPct)}* ${escapeMarkdown(market.priceChange)} \\(24h\\) · ${escapeMarkdown(market.volume)}\n\n`;
+      msg += `   *${escapeMarkdown(market.yesPct)}* YES · ${market.momentum} ${escapeMarkdown(market.priceChange)} \\(24h\\) · Vol: ${escapeMarkdown(market.volume)}\n\n`;
       
       keyboard
         .text(`🔔 #${startNum + i + 1}`, `alert:${marketId}`)
@@ -2005,9 +2006,9 @@ async function showTrendingWithButtons(ctx, page = 0) {
       const question = truncate(market.question, 40);
       const marketId = market.id || market.slug;
       
-      // Format with price change context
+      // Format with rich price context: "73% YES · 📈 +4.2% (24h) · Vol: $2.4M"
       msg += `*${startNum + i + 1}\\.* ${escapeMarkdown(question)}\n`;
-      msg += `   ${market.momentum} *${escapeMarkdown(market.yesPct)}* ${escapeMarkdown(market.priceChange)} \\(24h\\) · ${escapeMarkdown(market.volume)}\n\n`;
+      msg += `   *${escapeMarkdown(market.yesPct)}* YES · ${market.momentum} ${escapeMarkdown(market.priceChange)} \\(24h\\) · Vol: ${escapeMarkdown(market.volume)}\n\n`;
       
       // Add action buttons for each market
       keyboard
@@ -2124,9 +2125,9 @@ async function handleCategoryBrowse(ctx, category, page = 0) {
       const question = truncate(market.question, 40);
       const marketId = market.id || market.slug;
       
-      // Format with price change context
+      // Format with rich price context: "73% YES · 📈 +4.2% (24h) · Vol: $2.4M"
       msg += `*${startNum + i + 1}\\.* ${escapeMarkdown(question)}\n`;
-      msg += `   ${market.momentum} *${escapeMarkdown(market.yesPct)}* ${escapeMarkdown(market.priceChange)} \\(24h\\) · ${escapeMarkdown(market.volume)}\n\n`;
+      msg += `   *${escapeMarkdown(market.yesPct)}* YES · ${market.momentum} ${escapeMarkdown(market.priceChange)} \\(24h\\) · Vol: ${escapeMarkdown(market.volume)}\n\n`;
       
       // Add action buttons for each market
       keyboard
