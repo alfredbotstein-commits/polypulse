@@ -39,6 +39,7 @@ import {
   createPosition,
   addToPosition,
   reducePosition,
+  deletePosition,
   countOpenPositions,
   calculatePositionPnL,
   getSmartAlertPrefs,
@@ -231,6 +232,8 @@ bot.command('help', async (ctx) => {
 /portfolio — View all positions with P&L
 /buy bitcoin 100 0\\.54 — Log buying 100 shares at 54¢
 /sell bitcoin 50 0\\.73 — Log selling 50 shares at 73¢
+/addposition bitcoin 100 0\\.54 — Same as /buy
+/removeposition bitcoin — Delete a position
 /pnl — Quick P&L summary
 
 *Smart Alerts \\(Premium\\)*
@@ -1307,6 +1310,174 @@ bot.command('pnl', async (ctx) => {
   } catch (err) {
     console.error('PnL error:', err);
     await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// /addposition <market> <shares> <price> - Alias for /buy
+bot.command('addposition', async (ctx) => {
+  const args = ctx.match?.trim();
+
+  if (!args) {
+    return ctx.reply(
+`📈 *Add a Position*
+
+Record a position you bought on Polymarket\\.
+
+*Format:* \`/addposition market shares price\`
+
+*Examples:*
+\`/addposition bitcoin\\-100k 100 0\\.54\` — 100 shares at 54¢
+\`/addposition trump 200 0\\.31\` — 200 shares at 31¢
+
+_The price is in decimal \\(0\\.54 = 54¢\\)_`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  // Parse: market shares price
+  const match = args.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s+(\d*\.?\d+)$/);
+  
+  if (!match) {
+    return ctx.reply(
+      '❌ Invalid format\\. Use: `/addposition market shares price`\nExample: `/addposition bitcoin 100 0\\.54`',
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  const marketQuery = match[1].trim();
+  const shares = parseFloat(match[2]);
+  const price = parseFloat(match[3]);
+
+  if (shares <= 0) {
+    return ctx.reply('❌ Shares must be positive\\.', { parse_mode: 'MarkdownV2' });
+  }
+
+  if (price <= 0 || price >= 1) {
+    return ctx.reply('❌ Price must be between 0 and 1 \\(e\\.g\\., 0\\.54 = 54¢\\)\\.', { parse_mode: 'MarkdownV2' });
+  }
+
+  // Check position limits for free users
+  if (!ctx.isPremium) {
+    const posCount = await countOpenPositions(ctx.from.id);
+    if (posCount >= 1) {
+      // Check if this would be adding to existing position
+      const existing = await findPositionByMarket(ctx.from.id, marketQuery);
+      if (!existing) {
+        return ctx.reply(formatPremiumUpsell('portfolio'), { parse_mode: 'MarkdownV2' });
+      }
+    }
+  }
+
+  await ctx.replyWithChatAction('typing');
+
+  try {
+    // Find the market
+    const markets = await searchMarketsFulltext(marketQuery, 1);
+    
+    if (markets.length === 0) {
+      return ctx.reply(formatError('notFound'), { parse_mode: 'MarkdownV2' });
+    }
+
+    const market = markets[0];
+    const marketId = market.id || market.slug;
+
+    // Check if user already has a position in this market
+    const existing = await findPositionByMarket(ctx.from.id, marketId);
+
+    let position;
+    let isNewPosition = true;
+
+    if (existing) {
+      // Add to existing position
+      position = await addToPosition(existing.id, shares, price, ctx.from.id);
+      isNewPosition = false;
+    } else {
+      // Create new position
+      position = await createPosition(
+        ctx.from.id,
+        marketId,
+        market.question,
+        'YES', // Default to YES side
+        shares,
+        price
+      );
+    }
+
+    await ctx.reply(formatBuyConfirmation(position, isNewPosition), { 
+      parse_mode: 'MarkdownV2' 
+    });
+  } catch (err) {
+    console.error('Add position error:', err);
+    await ctx.reply(`❌ ${escapeMarkdown(err.message || 'Could not log trade')}`, { 
+      parse_mode: 'MarkdownV2' 
+    });
+  }
+});
+
+// /removeposition <id or market> - Remove a position entirely
+bot.command('removeposition', async (ctx) => {
+  const args = ctx.match?.trim();
+
+  if (!args) {
+    return ctx.reply(
+`🗑️ *Remove a Position*
+
+Delete a position from your portfolio \\(for mistakes or cleanup\\)\\. 
+
+*Usage:*
+\`/removeposition bitcoin\` — Remove by market name
+\`/removeposition abc123\` — Remove by position ID
+
+_Check /portfolio to see your positions and IDs\\._`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  await ctx.replyWithChatAction('typing');
+
+  try {
+    // First check if it's a UUID (position ID)
+    const positions = await getPositions(ctx.from.id);
+    
+    if (positions.length === 0) {
+      return ctx.reply(
+        '📭 *No positions to remove*\n\n_Add a position: /addposition bitcoin 100 0\\.54_',
+        { parse_mode: 'MarkdownV2' }
+      );
+    }
+
+    // Try to find by ID prefix first
+    let position = positions.find(p => p.id.startsWith(args));
+
+    // If not found by ID, try to find by market name/id
+    if (!position) {
+      const queryLower = args.toLowerCase();
+      position = positions.find(p => 
+        p.market_title?.toLowerCase().includes(queryLower) ||
+        p.market_id?.toLowerCase().includes(queryLower)
+      );
+    }
+
+    if (!position) {
+      return ctx.reply(
+        '❌ Position not found\\. Check /portfolio for your positions\\.',
+        { parse_mode: 'MarkdownV2' }
+      );
+    }
+
+    // Delete the position
+    await deletePosition(position.id, ctx.from.id);
+
+    const name = truncate(position.market_title, 40);
+    await ctx.reply(
+      `✅ *Position removed*\n\n_Deleted: ${escapeMarkdown(name)}_\n\n_View portfolio: /portfolio_`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  } catch (err) {
+    console.error('Remove position error:', err);
+    await ctx.reply(`❌ ${escapeMarkdown(err.message || 'Could not remove position')}`, { 
+      parse_mode: 'MarkdownV2' 
+    });
   }
 });
 

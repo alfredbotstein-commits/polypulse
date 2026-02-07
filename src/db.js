@@ -999,6 +999,39 @@ export async function getPositionTrades(positionId) {
 }
 
 /**
+ * Delete a position by ID (for /removeposition)
+ */
+export async function deletePosition(positionId, telegramId) {
+  // First verify the position belongs to this user
+  const position = await getPositionById(positionId);
+  if (!position) {
+    throw new Error('Position not found');
+  }
+  
+  // Check ownership - position.user_id is the telegram_id
+  if (position.user_id !== telegramId) {
+    throw new Error('Position not found');
+  }
+
+  // Delete associated trades first (due to foreign key)
+  await supabase
+    .from('pp_trades')
+    .delete()
+    .eq('position_id', positionId);
+
+  // Delete the position
+  const { data, error } = await supabase
+    .from('pp_positions')
+    .delete()
+    .eq('id', positionId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
  * Count user's positions (DB schema doesn't have status column)
  */
 export async function countOpenPositions(telegramId) {
