@@ -1009,4 +1009,225 @@ export function calculatePositionPnL(position, currentPrice) {
   };
 }
 
+// ============ SMART ALERTS ============
+
+/**
+ * Valid smart alert types
+ */
+export const SMART_ALERT_TYPES = ['volume_spike', 'momentum', 'divergence', 'new_market'];
+
+/**
+ * Get user's smart alert preferences
+ */
+export async function getSmartAlertPrefs(telegramId) {
+  const { data } = await supabase
+    .from('pp_smart_alert_prefs')
+    .select('*')
+    .eq('user_id', telegramId);
+
+  return data || [];
+}
+
+/**
+ * Get a specific smart alert preference
+ */
+export async function getSmartAlertPref(telegramId, alertType) {
+  const { data } = await supabase
+    .from('pp_smart_alert_prefs')
+    .select('*')
+    .eq('user_id', telegramId)
+    .eq('alert_type', alertType)
+    .single();
+
+  return data || null;
+}
+
+/**
+ * Create or update a smart alert preference
+ */
+export async function upsertSmartAlertPref(telegramId, alertType, enabled, params = {}) {
+  const { data, error } = await supabase
+    .from('pp_smart_alert_prefs')
+    .upsert({
+      user_id: telegramId,
+      alert_type: alertType,
+      enabled,
+      params,
+    }, { onConflict: 'user_id,alert_type' })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Enable/disable a smart alert type
+ */
+export async function setSmartAlertEnabled(telegramId, alertType, enabled) {
+  const existing = await getSmartAlertPref(telegramId, alertType);
+  return upsertSmartAlertPref(telegramId, alertType, enabled, existing?.params || {});
+}
+
+/**
+ * Update smart alert params (like categories for new_market)
+ */
+export async function setSmartAlertParams(telegramId, alertType, params) {
+  const existing = await getSmartAlertPref(telegramId, alertType);
+  return upsertSmartAlertPref(telegramId, alertType, existing?.enabled ?? true, params);
+}
+
+/**
+ * Get all premium users with a specific smart alert enabled
+ */
+export async function getSmartAlertSubscribers(alertType) {
+  const { data } = await supabase
+    .from('pp_smart_alert_prefs')
+    .select('*, pp_users!inner(*)')
+    .eq('alert_type', alertType)
+    .eq('enabled', true);
+
+  if (!data || data.length === 0) return [];
+
+  // Filter for premium users only
+  return data
+    .filter(pref => pref.pp_users.subscription_status === 'premium')
+    .map(pref => ({
+      telegramId: pref.user_id,
+      params: pref.params || {},
+      user: pref.pp_users,
+    }));
+}
+
+/**
+ * Check if we already sent this alert to this user recently
+ * Prevents duplicate alerts for the same market/event
+ */
+export async function hasRecentSmartAlert(telegramId, alertType, marketId, hoursBack = 4) {
+  const since = new Date(Date.now() - hoursBack * 60 * 60 * 1000).toISOString();
+
+  const { count } = await supabase
+    .from('pp_smart_alert_history')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', telegramId)
+    .eq('alert_type', alertType)
+    .eq('market_id', marketId)
+    .gte('sent_at', since);
+
+  return (count || 0) > 0;
+}
+
+/**
+ * Log that we sent a smart alert
+ */
+export async function logSmartAlert(telegramId, alertType, marketId, details = {}) {
+  const { error } = await supabase
+    .from('pp_smart_alert_history')
+    .insert({
+      user_id: telegramId,
+      alert_type: alertType,
+      market_id: marketId,
+      details,
+    });
+
+  if (error) console.error('Error logging smart alert:', error);
+}
+
+/**
+ * Store market volume snapshot for spike detection
+ */
+export async function storeVolumeSnapshot(marketId, volumeUsd, price = null) {
+  const { error } = await supabase
+    .from('pp_market_volume_snapshots')
+    .insert({
+      market_id: marketId,
+      volume_usd: volumeUsd,
+      price,
+    });
+
+  if (error) console.error('Error storing volume snapshot:', error);
+}
+
+/**
+ * Get volume snapshots for a market (for calculating average)
+ */
+export async function getVolumeSnapshots(marketId, hoursBack = 24) {
+  const since = new Date(Date.now() - hoursBack * 60 * 60 * 1000).toISOString();
+
+  const { data } = await supabase
+    .from('pp_market_volume_snapshots')
+    .select('*')
+    .eq('market_id', marketId)
+    .gte('snapshot_at', since)
+    .order('snapshot_at', { ascending: true });
+
+  return data || [];
+}
+
+/**
+ * Calculate average hourly volume for a market
+ */
+export async function getAverageHourlyVolume(marketId) {
+  const snapshots = await getVolumeSnapshots(marketId, 24);
+  
+  if (snapshots.length < 2) return null;
+
+  // Calculate volume delta between snapshots
+  let totalVolumeDelta = 0;
+  for (let i = 1; i < snapshots.length; i++) {
+    const delta = parseFloat(snapshots[i].volume_usd) - parseFloat(snapshots[i-1].volume_usd);
+    if (delta > 0) totalVolumeDelta += delta;
+  }
+
+  // Get hours spanned
+  const firstTime = new Date(snapshots[0].snapshot_at);
+  const lastTime = new Date(snapshots[snapshots.length - 1].snapshot_at);
+  const hoursSpanned = (lastTime - firstTime) / (1000 * 60 * 60);
+
+  if (hoursSpanned < 1) return null;
+
+  return totalVolumeDelta / hoursSpanned;
+}
+
+/**
+ * Get price snapshots for momentum detection
+ */
+export async function getPriceHistory(marketId, hoursBack = 4) {
+  const snapshots = await getVolumeSnapshots(marketId, hoursBack);
+  return snapshots
+    .filter(s => s.price !== null)
+    .map(s => ({
+      price: parseFloat(s.price),
+      time: new Date(s.snapshot_at),
+    }));
+}
+
+/**
+ * Clean up old volume snapshots (older than 48 hours)
+ */
+export async function cleanupOldSnapshots() {
+  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+
+  const { error } = await supabase
+    .from('pp_market_volume_snapshots')
+    .delete()
+    .lt('snapshot_at', cutoff);
+
+  if (error) console.error('Error cleaning up snapshots:', error);
+}
+
+/**
+ * Clean up old alert history (older than 7 days)
+ */
+export async function cleanupOldAlertHistory() {
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { error } = await supabase
+    .from('pp_smart_alert_history')
+    .delete()
+    .lt('sent_at', cutoff);
+
+  if (error) console.error('Error cleaning up alert history:', error);
+}
+
 export { supabase };

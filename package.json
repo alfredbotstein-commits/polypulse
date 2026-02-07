@@ -11,7 +11,8 @@
     "verify": "node scripts/verify-setup.js",
     "briefing": "node src/briefing-cron.js",
     "briefing:test": "node scripts/test-briefing.js",
-    "whale": "node src/whale-monitor.js"
+    "whale": "node src/whale-monitor.js",
+    "smartalerts": "node src/smart-alert-monitor.js"
   },
   "keywords": [
     "polymarket",

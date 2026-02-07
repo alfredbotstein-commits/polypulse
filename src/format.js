@@ -817,4 +817,175 @@ Track your real Polymarket positions with real\\-time P&L\\.
 _Upgrade to track your full portfolio → /upgrade_`;
 }
 
+// ============ SMART ALERTS ============
+
+/**
+ * Format smart alert settings display
+ */
+export function formatSmartAlertSettings(prefs, isPremiumUser) {
+  if (!isPremiumUser) {
+    return `🧠 *Smart Alerts — Premium Only*
+
+Get notified about patterns that signal something big is happening\\.
+
+*Alert types:*
+📊 *Volume Spike* — 3x\\+ normal volume in an hour
+🚀 *Momentum* — 10%\\+ move in 4 hours
+⚠️ *Divergence* — Correlated markets decouple
+🆕 *New Market* — New markets in your categories
+
+_Upgrade to Premium to enable → /upgrade_`;
+  }
+
+  // Build status for each alert type
+  const types = [
+    { key: 'volume_spike', name: 'Volume Spike', emoji: '📊', desc: '3x+ normal volume' },
+    { key: 'momentum', name: 'Momentum', emoji: '🚀', desc: '10%+ in 4 hours' },
+    { key: 'divergence', name: 'Divergence', emoji: '⚠️', desc: 'Correlated markets decouple' },
+    { key: 'new_market', name: 'New Market', emoji: '🆕', desc: 'Markets in your categories' },
+  ];
+
+  let msg = `🧠 *Smart Alerts*\n\n`;
+
+  types.forEach(type => {
+    const pref = prefs.find(p => p.alert_type === type.key);
+    const enabled = pref?.enabled ?? false;
+    const status = enabled ? '✅' : '❌';
+    
+    msg += `${type.emoji} *${escapeMarkdown(type.name)}*: ${status}\n`;
+    msg += `   _${escapeMarkdown(type.desc)}_\n`;
+    
+    // Show categories if new_market
+    if (type.key === 'new_market' && pref?.params?.categories?.length) {
+      const cats = pref.params.categories.join(', ');
+      msg += `   Categories: ${escapeMarkdown(cats)}\n`;
+    }
+    msg += `\n`;
+  });
+
+  msg += `*Commands:*\n`;
+  msg += `\`/smartalert volume on\` — Enable volume alerts\n`;
+  msg += `\`/smartalert momentum off\` — Disable momentum\n`;
+  msg += `\`/smartalert categories crypto,politics\`\n`;
+  msg += `\`/smartalerts\` — View this status`;
+
+  return msg;
+}
+
+/**
+ * Format volume spike alert
+ */
+export function formatVolumeSpikeAlert(market, currentVolume, avgVolume, multiplier, priceChange) {
+  const volCurrent = formatVolume(currentVolume);
+  const volAvg = formatVolume(avgVolume);
+  
+  const pricePct = ((priceChange || 0) * 100).toFixed(0);
+  const priceStr = priceChange >= 0 ? `+${pricePct}%` : `${pricePct}%`;
+  const priceEmoji = priceChange > 0 ? '📈' : priceChange < 0 ? '📉' : '';
+
+  let msg = `📊 *VOLUME SPIKE*\n\n`;
+  msg += `"${escapeMarkdown(truncate(market.question, 60))}" just saw *${multiplier.toFixed(1)}x* normal volume\\!\n\n`;
+  msg += `*This hour:* ${escapeMarkdown(volCurrent)}\n`;
+  msg += `*Avg hourly:* ${escapeMarkdown(volAvg)}\n`;
+  
+  if (priceChange !== null) {
+    msg += `${priceEmoji} *Price change:* ${escapeMarkdown(priceStr)}\n`;
+  }
+
+  msg += `\n_Something is happening\\. Check the news\\._\n`;
+  msg += `→ /price ${escapeMarkdown(market.slug || market.id || 'market')}`;
+
+  return msg;
+}
+
+/**
+ * Format momentum alert
+ */
+export function formatMomentumAlert(market, oldPrice, newPrice, hoursElapsed) {
+  const change = (newPrice - oldPrice) * 100;
+  const changeStr = change >= 0 ? `+${change.toFixed(0)}%` : `${change.toFixed(0)}%`;
+  const emoji = change > 0 ? '🚀' : '📉';
+  const direction = change > 0 ? 'surged' : 'dropped';
+
+  let msg = `${emoji} *MOMENTUM ALERT*\n\n`;
+  msg += `"${escapeMarkdown(truncate(market.question, 60))}" has ${direction} *${escapeMarkdown(Math.abs(change).toFixed(0))}%* in ${hoursElapsed.toFixed(1)} hours\\!\n\n`;
+  msg += `*Then:* ${(oldPrice * 100).toFixed(0)}%\n`;
+  msg += `*Now:* ${(newPrice * 100).toFixed(0)}%\n`;
+  msg += `*Move:* ${escapeMarkdown(changeStr)}\n\n`;
+  msg += `_This is one of the fastest moves in this market's history\\._\n`;
+  msg += `→ /price ${escapeMarkdown(market.slug || market.id || 'market')}`;
+
+  return msg;
+}
+
+/**
+ * Format divergence alert
+ */
+export function formatDivergenceAlert(market1, market2, correlation) {
+  let msg = `⚠️ *DIVERGENCE ALERT*\n\n`;
+  msg += `These usually\\-correlated markets are moving apart:\n\n`;
+  msg += `📊 "${escapeMarkdown(truncate(market1.question, 40))}" — *${(market1.price * 100).toFixed(0)}%*\n`;
+  msg += `📊 "${escapeMarkdown(truncate(market2.question, 40))}" — *${(market2.price * 100).toFixed(0)}%*\n\n`;
+  msg += `_Historical correlation: ${(correlation * 100).toFixed(0)}%_\n`;
+  msg += `_One of them may be mispriced\\._\n\n`;
+  msg += `→ /price ${escapeMarkdown(market1.slug || 'market1')}\n`;
+  msg += `→ /price ${escapeMarkdown(market2.slug || 'market2')}`;
+
+  return msg;
+}
+
+/**
+ * Format new market alert
+ */
+export function formatNewMarketAlert(market, category) {
+  const price = market.price || 0.5;
+  const volume = market.volume24hr || market.volumeNum || 0;
+
+  let msg = `🆕 *NEW MARKET IN YOUR CATEGORIES*\n\n`;
+  msg += `Category: ${escapeMarkdown(category)}\n`;
+  msg += `"${escapeMarkdown(truncate(market.question, 60))}"\n\n`;
+  msg += `*Opening odds:* ${(price * 100).toFixed(0)}% YES\n`;
+  if (volume > 0) {
+    msg += `*Volume so far:* ${escapeMarkdown(formatVolume(volume))}\n`;
+  }
+  msg += `\n→ /price ${escapeMarkdown(market.slug || market.id || 'market')}\n`;
+  msg += `→ /watch ${escapeMarkdown(market.slug || market.id || 'market')}`;
+
+  return msg;
+}
+
+/**
+ * Format smart alert toggle confirmation
+ */
+export function formatSmartAlertToggled(alertType, enabled) {
+  const types = {
+    volume_spike: { name: 'Volume Spike', emoji: '📊' },
+    momentum: { name: 'Momentum', emoji: '🚀' },
+    divergence: { name: 'Divergence', emoji: '⚠️' },
+    new_market: { name: 'New Market', emoji: '🆕' },
+  };
+
+  const type = types[alertType] || { name: alertType, emoji: '🔔' };
+
+  if (enabled) {
+    return `${type.emoji} *${escapeMarkdown(type.name)} alerts enabled\\!*\n\n_You'll be notified when these patterns are detected\\._`;
+  } else {
+    return `❌ *${escapeMarkdown(type.name)} alerts disabled*\n\n_Re\\-enable anytime: /smartalert ${alertType.replace('_', '')} on_`;
+  }
+}
+
+/**
+ * Format categories set confirmation
+ */
+export function formatCategoriesSet(categories) {
+  const catList = categories.join(', ');
+  
+  return `🆕 *New Market categories updated\\!*
+
+You'll receive alerts for new markets in:
+${escapeMarkdown(catList)}
+
+_Available: crypto, politics, sports, tech, economics, entertainment_`;
+}
+
 export { parseOutcomes };

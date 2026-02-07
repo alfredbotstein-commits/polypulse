@@ -40,6 +40,10 @@ import {
   reducePosition,
   countOpenPositions,
   calculatePositionPnL,
+  getSmartAlertPrefs,
+  setSmartAlertEnabled,
+  setSmartAlertParams,
+  SMART_ALERT_TYPES,
 } from './db.js';
 import {
   searchMarketsFulltext,
@@ -71,6 +75,9 @@ import {
   formatBuyConfirmation,
   formatSellConfirmation,
   formatPortfolioUpsell,
+  formatSmartAlertSettings,
+  formatSmartAlertToggled,
+  formatCategoriesSet,
 } from './format.js';
 
 // Initialize bot
@@ -140,12 +147,18 @@ bot.command('help', async (ctx) => {
 /sell bitcoin 50 0\\.73 — Log selling 50 shares at 73¢
 /pnl — Quick P&L summary
 
+*Smart Alerts \\(Premium\\)*
+/smartalerts — View smart alert settings
+/smartalert volume on — Enable volume spike alerts
+/smartalert momentum off — Disable momentum alerts
+/smartalert categories crypto,politics — Set new market categories
+
 *Account*
 /account — Check my subscription status
 /upgrade — Get Premium \\($9\\.99/mo\\)
 
 _Free: 3 alerts, 5 watchlist, 1 position, 10 price checks/day_
-_Premium: Unlimited \\+ Briefing \\+ Whales \\+ Portfolio_`;
+_Premium: Unlimited \\+ Briefing \\+ Whales \\+ Smart Alerts_`;
 
   await ctx.reply(msg, { parse_mode: 'MarkdownV2' });
 });
@@ -1081,6 +1094,134 @@ bot.command('pnl', async (ctx) => {
   } catch (err) {
     console.error('PnL error:', err);
     await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// ============ SMART ALERT COMMANDS ============
+
+// Valid categories for new market alerts
+const VALID_CATEGORIES = ['crypto', 'politics', 'sports', 'tech', 'economics', 'entertainment', 'world'];
+
+// /smartalerts - View smart alert settings
+bot.command('smartalerts', async (ctx) => {
+  // Premium check
+  if (!ctx.isPremium) {
+    return ctx.reply(formatSmartAlertSettings([], false), { parse_mode: 'MarkdownV2' });
+  }
+
+  try {
+    const prefs = await getSmartAlertPrefs(ctx.from.id);
+    return ctx.reply(formatSmartAlertSettings(prefs, true), { parse_mode: 'MarkdownV2' });
+  } catch (err) {
+    console.error('Smart alerts error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// /smartalert <type> <on|off> OR /smartalert categories <list>
+bot.command('smartalert', async (ctx) => {
+  const args = ctx.match?.trim().toLowerCase();
+
+  // Premium check
+  if (!ctx.isPremium) {
+    return ctx.reply(formatSmartAlertSettings([], false), { parse_mode: 'MarkdownV2' });
+  }
+
+  if (!args) {
+    return ctx.reply(
+`🧠 *Smart Alerts*
+
+*Usage:*
+\`/smartalert volume on\` — Enable volume spike alerts
+\`/smartalert momentum off\` — Disable momentum alerts
+\`/smartalert categories crypto,politics\` — Set categories
+
+*Alert types:*
+• \`volume\` — 3x\\+ normal volume spikes
+• \`momentum\` — 10%\\+ moves in 4 hours
+• \`divergence\` — Correlated markets decouple
+• \`newmarket\` — New markets in your categories
+
+_View current settings: /smartalerts_`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  // Handle /smartalert categories crypto,politics
+  if (args.startsWith('categories ')) {
+    const catStr = args.replace('categories ', '').trim();
+    const categories = catStr.split(/[,\s]+/).filter(c => c.length > 0);
+    
+    // Validate categories
+    const validCats = categories.filter(c => VALID_CATEGORIES.includes(c.toLowerCase()));
+    
+    if (validCats.length === 0) {
+      return ctx.reply(
+        `❌ No valid categories\\. Available: ${escapeMarkdown(VALID_CATEGORIES.join(', '))}`,
+        { parse_mode: 'MarkdownV2' }
+      );
+    }
+
+    try {
+      await setSmartAlertParams(ctx.from.id, 'new_market', { categories: validCats });
+      // Also enable new_market alerts
+      await setSmartAlertEnabled(ctx.from.id, 'new_market', true);
+      return ctx.reply(formatCategoriesSet(validCats), { parse_mode: 'MarkdownV2' });
+    } catch (err) {
+      console.error('Set categories error:', err);
+      return ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+    }
+  }
+
+  // Parse: /smartalert <type> <on|off>
+  const parts = args.split(/\s+/);
+  if (parts.length < 2) {
+    return ctx.reply(
+      '❌ Usage: `/smartalert volume on` or `/smartalert momentum off`',
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  const typeArg = parts[0];
+  const action = parts[1];
+
+  // Map user-friendly names to db alert types
+  const typeMap = {
+    'volume': 'volume_spike',
+    'volumespike': 'volume_spike',
+    'volume_spike': 'volume_spike',
+    'momentum': 'momentum',
+    'divergence': 'divergence',
+    'newmarket': 'new_market',
+    'new_market': 'new_market',
+    'newmarkets': 'new_market',
+  };
+
+  const alertType = typeMap[typeArg];
+  
+  if (!alertType) {
+    return ctx.reply(
+      `❌ Unknown alert type: "${escapeMarkdown(typeArg)}"\\. Try: volume, momentum, divergence, newmarket`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  const enabled = action === 'on' || action === 'enable' || action === 'true' || action === '1';
+  const disabled = action === 'off' || action === 'disable' || action === 'false' || action === '0';
+
+  if (!enabled && !disabled) {
+    return ctx.reply(
+      '❌ Use "on" or "off"\\. Example: `/smartalert volume on`',
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  try {
+    await setSmartAlertEnabled(ctx.from.id, alertType, enabled);
+    return ctx.reply(formatSmartAlertToggled(alertType, enabled), { parse_mode: 'MarkdownV2' });
+  } catch (err) {
+    console.error('Smart alert toggle error:', err);
+    return ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
   }
 });
 
