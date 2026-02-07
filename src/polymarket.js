@@ -309,43 +309,44 @@ export async function getPopularTags(limit = 10) {
 }
 
 /**
- * Fallback category definitions (used when tags API unavailable)
+ * Curated category definitions per Raphael's POLYPULSE_UX_DESIGNS.md spec
+ * Maps Polymarket tags to 10 parent categories
  */
 export const CATEGORIES = {
   crypto: {
     name: 'Crypto',
     emoji: '🪙',
-    keywords: ['bitcoin', 'ethereum', 'solana', 'crypto', 'btc', 'eth', 'token', 'blockchain'],
+    keywords: ['bitcoin', 'ethereum', 'solana', 'crypto', 'btc', 'eth', 'token', 'blockchain', 'defi', 'nft'],
   },
   politics: {
     name: 'US Politics',
     emoji: '🏛️',
-    keywords: ['trump', 'biden', 'election', 'congress', 'senate', 'president', 'republican', 'democrat'],
+    keywords: ['trump', 'biden', 'election', 'congress', 'senate', 'president', 'republican', 'democrat', 'supreme-court'],
   },
   world: {
-    name: 'World',
+    name: 'World Politics',
     emoji: '🌍',
-    keywords: ['ukraine', 'russia', 'china', 'israel', 'gaza', 'nato', 'eu', 'war'],
+    keywords: ['ukraine', 'russia', 'china', 'israel', 'gaza', 'nato', 'eu', 'war', 'international', 'europe'],
   },
   tech: {
     name: 'Tech',
     emoji: '💻',
-    keywords: ['apple', 'google', 'openai', 'microsoft', 'meta', 'ai', 'gpt', 'tesla'],
+    keywords: ['apple', 'google', 'openai', 'microsoft', 'meta', 'ai', 'gpt', 'tesla', 'tech'],
   },
   economics: {
-    name: 'Economics',
+    name: 'Economy',
     emoji: '📈',
-    keywords: ['fed', 'inflation', 'recession', 'gdp', 'interest', 'rate', 'economy', 'jobs'],
+    keywords: ['fed', 'inflation', 'recession', 'gdp', 'interest', 'rate', 'economy', 'jobs', 'rates'],
   },
   sports: {
     name: 'Sports',
     emoji: '⚽',
-    keywords: ['nfl', 'nba', 'ufc', 'super bowl', 'playoffs', 'championship', 'world cup'],
+    keywords: ['nfl', 'nba', 'ufc', 'super bowl', 'playoffs', 'championship', 'world cup', 'soccer', 'f1', 'sports'],
   },
   entertainment: {
     name: 'Entertainment',
     emoji: '🎬',
-    keywords: ['oscar', 'movie', 'netflix', 'celebrity', 'grammy', 'box office', 'streaming'],
+    keywords: ['oscar', 'movie', 'netflix', 'celebrity', 'grammy', 'box office', 'streaming', 'oscars'],
   },
   science: {
     name: 'Science',
@@ -355,12 +356,12 @@ export const CATEGORIES = {
   legal: {
     name: 'Legal',
     emoji: '⚖️',
-    keywords: ['court', 'supreme', 'lawsuit', 'trial', 'indictment', 'judge', 'verdict'],
+    keywords: ['court', 'supreme', 'lawsuit', 'trial', 'indictment', 'judge', 'verdict', 'regulation'],
   },
   health: {
     name: 'Health',
     emoji: '🏥',
-    keywords: ['fda', 'vaccine', 'pandemic', 'drug', 'approval', 'health', 'medical'],
+    keywords: ['fda', 'vaccine', 'pandemic', 'drug', 'approval', 'health', 'medical', 'pharma'],
   },
 };
 

@@ -2047,42 +2047,36 @@ async function showTrendingWithButtons(ctx, page = 0) {
   }
 }
 
-// Show category browser using dynamic tags from API
+// Show category browser using Raphael's curated 10 categories
 async function showCategoryBrowser(ctx) {
   const keyboard = new InlineKeyboard();
   
-  try {
-    // Fetch popular tags from API
-    const tags = await getPopularTags(10);
+  // Curated category order per Raphael's spec
+  const categoryOrder = [
+    'crypto', 'politics',      // Row 1: 🪙 Crypto, 🏛️ US Politics
+    'world', 'tech',           // Row 2: 🌍 World, 💻 Tech
+    'economics', 'sports',     // Row 3: 📈 Economics, ⚽ Sports
+    'entertainment', 'science',// Row 4: 🎬 Entertainment, 🔬 Science
+    'legal', 'health',         // Row 5: ⚖️ Legal, 🏥 Health
+  ];
+  
+  // Build 2-column grid
+  for (let i = 0; i < categoryOrder.length; i += 2) {
+    const key1 = categoryOrder[i];
+    const key2 = categoryOrder[i + 1];
+    const cat1 = CATEGORIES[key1];
+    const cat2 = key2 ? CATEGORIES[key2] : null;
     
-    // Build buttons in 2 columns
-    for (let i = 0; i < tags.length; i += 2) {
-      const tag1 = tags[i];
-      const tag2 = tags[i + 1];
-      
-      keyboard.text(`${tag1.emoji} ${tag1.name}`, `tag:${tag1.id || tag1.slug}`);
-      if (tag2) keyboard.text(`${tag2.emoji} ${tag2.name}`, `tag:${tag2.id || tag2.slug}`);
-      keyboard.row();
-    }
-  } catch (err) {
-    console.error('showCategoryBrowser error:', err.message);
-    // Fallback to hardcoded categories
-    const catKeys = Object.keys(CATEGORIES);
-    for (let i = 0; i < catKeys.length; i += 2) {
-      const cat1 = CATEGORIES[catKeys[i]];
-      const cat2 = catKeys[i + 1] ? CATEGORIES[catKeys[i + 1]] : null;
-      
-      keyboard.text(`${cat1.emoji} ${cat1.name}`, `cat:${catKeys[i]}`);
-      if (cat2) keyboard.text(`${cat2.emoji} ${cat2.name}`, `cat:${catKeys[i + 1]}`);
-      keyboard.row();
-    }
+    keyboard.text(`${cat1.emoji} ${cat1.name}`, `cat:${key1}`);
+    if (cat2) keyboard.text(`${cat2.emoji} ${cat2.name}`, `cat:${key2}`);
+    keyboard.row();
   }
   
   keyboard.text('🏠 Home', 'action:back_home');
 
   const msg = `*🔍 Browse Categories*
 
-Tap a category to see markets\\. Each category shows top markets by volume with live odds and 24h price changes\\.`;
+Tap a category to explore markets:`;
 
   await ctx.editMessageText(msg, {
     parse_mode: 'MarkdownV2',
