@@ -680,44 +680,107 @@ _Your morning briefing will arrive at this time daily\\._`;
 // ============ WHALE ALERTS ============
 
 /**
+ * Get whale tier emoji based on amount
+ */
+export function getWhaleTierEmoji(amountUsd) {
+  if (amountUsd >= 1000000) return '🐋🐋🐋';  // Mega whale: $1M+
+  if (amountUsd >= 500000) return '🐋🐋';     // Big whale: $500K+
+  if (amountUsd >= 100000) return '🐋';       // Whale: $100K+
+  if (amountUsd >= 50000) return '🦈';        // Shark: $50K+
+  if (amountUsd >= 10000) return '🐬';        // Dolphin: $10K+
+  return '🐟';                                 // Fish: < $10K
+}
+
+/**
  * Format whale alert message
  */
-export function formatWhaleAlert(event, stats = null) {
-  const { marketTitle, amountUsd, side, oddsBefore, oddsAfter } = event;
+export function formatWhaleAlert(event, stats = null, tier = null) {
+  const { marketTitle, amountUsd, side, oddsBefore, oddsAfter, traderName } = event;
   const amount = formatVolume(amountUsd);
   
-  // Determine emoji based on amount
-  let emoji = '🐋';  // Whale: $50K+
-  if (amountUsd >= 500000) {
-    emoji = '🏦';  // Institution: $500K+
-  } else if (amountUsd >= 100000) {
-    emoji = '🦈';  // Shark: $100K+
-  }
-
-  const oddsMove = oddsAfter && oddsBefore 
-    ? (oddsAfter - oddsBefore) * 100 
-    : null;
-  const oddsMoveStr = oddsMove !== null 
-    ? `${oddsMove >= 0 ? '+' : ''}${oddsMove.toFixed(1)}%`
-    : '';
+  // Use provided tier or calculate
+  const emoji = tier || getWhaleTierEmoji(amountUsd);
   
-  let msg = `${emoji} *WHALE ALERT*\n\n`;
-  msg += `*${escapeMarkdown(amount)}* just dropped on *${escapeMarkdown(side)}*\n`;
+  // Title based on size
+  let title = 'WHALE ALERT';
+  if (amountUsd >= 1000000) title = 'MEGA WHALE ALERT';
+  else if (amountUsd >= 500000) title = 'BIG WHALE ALERT';
+  else if (amountUsd < 50000) title = 'LARGE BET ALERT';
+  
+  let msg = `${emoji} *${title}*\n\n`;
+  msg += `*${escapeMarkdown(amount)}* bet on *${escapeMarkdown(side)}*\n`;
   msg += `Market: _${escapeMarkdown(truncate(marketTitle, 80))}_\n`;
   
-  if (oddsBefore && oddsAfter) {
-    msg += `Odds moved: ${formatPercent(oddsBefore)} → ${formatPercent(oddsAfter)} \\(${escapeMarkdown(oddsMoveStr)}\\)\n`;
+  // Show price/odds
+  if (oddsAfter) {
+    const pct = (parseFloat(oddsAfter) * 100).toFixed(0);
+    msg += `Entry: ${pct}%\n`;
+  }
+  
+  // Show trader name if available
+  if (traderName) {
+    msg += `Trader: ${escapeMarkdown(traderName)}\n`;
   }
   
   msg += `Time: Just now\n`;
 
   // Add 24h stats if available
   if (stats && stats.count > 0) {
-    msg += `\n_This is whale \\#${stats.count} on this market today\\._\n`;
-    msg += `_24h whale volume: ${escapeMarkdown(formatVolume(stats.yesVolume))} YES / ${escapeMarkdown(formatVolume(stats.noVolume))} NO_`;
+    msg += `\n_Whale \\#${stats.count} on this market today_\n`;
+    msg += `_24h whale vol: ${escapeMarkdown(formatVolume(stats.yesVolume))} YES / ${escapeMarkdown(formatVolume(stats.noVolume))} NO_`;
   }
 
   return msg;
+}
+
+/**
+ * Format whale list for /whales command
+ */
+export function formatWhaleList(whales, minAmount = 10000) {
+  if (!whales || whales.length === 0) {
+    return `🐋 *No whale activity*\n\n_No bets ≥ ${escapeMarkdown(formatVolume(minAmount))} in the last 24h\\._\n\n_Whales are traders who make large bets\\. Check back later\\!_`;
+  }
+  
+  let msg = `🐋 *Recent Whale Activity*\n`;
+  msg += `_Bets ≥ ${escapeMarkdown(formatVolume(minAmount))} in last 24h_\n\n`;
+  
+  for (let i = 0; i < whales.length; i++) {
+    const w = whales[i];
+    const tier = getWhaleTierEmoji(w.amountUsd);
+    const amount = formatVolume(w.amountUsd);
+    const side = w.side || 'BET';
+    const title = truncate(w.marketTitle, 35);
+    
+    msg += `${tier} *${escapeMarkdown(amount)}* on *${escapeMarkdown(side)}*\n`;
+    msg += `   _${escapeMarkdown(title)}_\n`;
+    
+    // Time ago
+    if (w.timestamp) {
+      const ago = getTimeAgo(w.timestamp * 1000);
+      msg += `   ${escapeMarkdown(ago)}\n`;
+    }
+    msg += `\n`;
+  }
+  
+  msg += `_Enable whale alerts: /whale on_`;
+  
+  return msg;
+}
+
+/**
+ * Get human-readable time ago
+ */
+function getTimeAgo(timestamp) {
+  const now = Date.now();
+  const diff = now - timestamp;
+  
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 /**
@@ -785,6 +848,118 @@ export function formatWhaleDisabled() {
   return `❌ *Whale alerts disabled*
 
 _Re\\-enable anytime: /whale on_`;
+}
+
+/**
+ * Get whale tier emoji and label
+ */
+function getWhaleTierInfo(amountUsd) {
+  if (amountUsd >= 1000000) return { emoji: '🐋🐋🐋', label: 'Mega Whale' };
+  if (amountUsd >= 500000) return { emoji: '🐋🐋', label: 'Big Whale' };
+  if (amountUsd >= 100000) return { emoji: '🐋', label: 'Whale' };
+  if (amountUsd >= 50000) return { emoji: '🦈', label: 'Shark' };
+  if (amountUsd >= 10000) return { emoji: '🐬', label: 'Dolphin' };
+  return { emoji: '🐟', label: 'Fish' };
+}
+
+/**
+ * Format recent whales list for /whales command
+ */
+export function formatRecentWhales(whales, stats, isPremiumUser) {
+  if (!isPremiumUser) {
+    return `🐋 *Whale Alerts — Premium Only*
+
+See the biggest bets on Polymarket in real\\-time\\.
+
+*What you'll see:*
+• 🐟 Fish \\(<$10K\\)
+• 🐬 Dolphins \\($10K\\+\\)
+• 🦈 Sharks \\($50K\\+\\)
+• 🐋 Whales \\($100K\\+\\)
+• 🐋🐋 Big Whales \\($500K\\+\\)
+• 🐋🐋🐋 Mega Whales \\($1M\\+\\)
+
+Track smart money and see where the big players are betting\\.
+
+_Upgrade to Premium → /upgrade_`;
+  }
+
+  if (!whales || whales.length === 0) {
+    return `🐋 *Recent Whale Activity*
+
+_No trades ≥ $10K in the last 24 hours\\._
+
+Whale alerts monitor for:
+• 🐬 Dolphins \\($10K\\+\\)
+• 🦈 Sharks \\($50K\\+\\)
+• 🐋 Whales \\($100K\\+\\)
+• 🐋🐋🐋 Mega Whales \\($1M\\+\\)
+
+_Set your alert threshold: /whale 50k_`;
+  }
+
+  let msg = `🐋 *WHALE ACTIVITY \\(24h\\)*\n\n`;
+
+  // Summary stats if available
+  if (stats) {
+    msg += `📊 *Summary:* ${stats.count} whale trades, ${escapeMarkdown(formatVolume(stats.totalVolume))} total\n\n`;
+  }
+
+  // List whales - handle both API format (camelCase) and DB format (snake_case)
+  whales.slice(0, 10).forEach((whale, i) => {
+    // Normalize field names (API uses camelCase, DB uses snake_case)
+    const amountUsd = whale.amountUsd || whale.amount_usd || 0;
+    const marketTitle = whale.marketTitle || whale.market_title || 'Unknown Market';
+    const side = whale.side || 'YES';
+    const timestamp = whale.timestamp || whale.detected_at || whale.created_at;
+    const traderName = whale.traderName || whale.trader_name;
+    
+    const tier = getWhaleTierInfo(amountUsd);
+    const amount = formatVolume(amountUsd);
+    const name = truncate(marketTitle, 35);
+    
+    // Format time ago
+    let timeAgo = 'Just now';
+    if (timestamp) {
+      const ts = typeof timestamp === 'number' 
+        ? (timestamp < 1e12 ? timestamp * 1000 : timestamp) // Handle unix seconds vs ms
+        : new Date(timestamp).getTime();
+      timeAgo = formatTimeAgo(ts);
+    }
+    
+    msg += `${tier.emoji} *${escapeMarkdown(amount)}* on *${escapeMarkdown(side)}*\n`;
+    msg += `   _${escapeMarkdown(name)}_\n`;
+    if (traderName) {
+      msg += `   👤 ${escapeMarkdown(traderName)} • ${escapeMarkdown(timeAgo)}\n\n`;
+    } else {
+      msg += `   ${escapeMarkdown(timeAgo)}\n\n`;
+    }
+  });
+
+  // Footer
+  msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+  msg += `_Enable whale alerts: /whale on_\n`;
+  msg += `_Set threshold: /whale 100k_`;
+
+  return msg;
+}
+
+/**
+ * Format time ago helper
+ */
+function formatTimeAgo(date) {
+  if (!date) return 'Just now';
+  
+  const now = new Date();
+  const then = new Date(date);
+  const diffMs = now - then;
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${Math.floor(diffHours / 24)}d ago`;
 }
 
 // ============ PORTFOLIO TRACKER ============

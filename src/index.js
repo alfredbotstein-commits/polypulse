@@ -33,6 +33,7 @@ import {
   getWhalePrefs,
   upsertWhalePrefs,
   setWhaleEnabled,
+  getRecentWhaleEvents,
   getPositions,
   findPositionByMarket,
   createPosition,
@@ -72,6 +73,7 @@ import {
   getMarketById,
   CATEGORIES,
 } from './polymarket.js';
+import { getRecentWhales } from './whale-monitor.js';
 
 // Pagination state storage (in-memory, keyed by user ID)
 const paginationState = new Map();
@@ -115,6 +117,7 @@ import {
   formatWhaleSettings,
   formatWhaleEnabled,
   formatWhaleDisabled,
+  formatWhaleList,
   formatPortfolio,
   formatPnLSummary,
   formatBuyConfirmation,
@@ -215,11 +218,12 @@ bot.command('help', async (ctx) => {
 /briefing time 7am — Set delivery time
 /timezone EST — Set your timezone
 
-*Whale Alerts \\(Premium\\)*
-/whale — View whale alert settings
-/whale on — Enable alerts \\($50K\\+\\)
+*Whale Alerts*
+/whales — See recent large bets \\($10K\\+\\)
+/whales 50k — Filter to $50K\\+ bets
+/whale — Whale alert settings \\(Premium\\)
+/whale on — Enable real\\-time alerts
 /whale 100k — Only alert $100K\\+ bets
-/whale off — Disable alerts
 
 *Portfolio Tracker*
 /portfolio — View all positions with P&L
@@ -922,6 +926,37 @@ bot.command('whale', async (ctx) => {
     '❌ Invalid command\\. Try:\n`/whale on` — Enable \\($50K\\+\\)\n`/whale 100k` — Only $100K\\+ bets\n`/whale off` — Disable',
     { parse_mode: 'MarkdownV2' }
   );
+});
+
+// /whales - Show recent whale activity (large bets $10K+)
+bot.command('whales', async (ctx) => {
+  const args = ctx.match?.trim().toLowerCase();
+  
+  // Parse optional minimum amount (e.g., /whales 50k)
+  let minAmount = 10000; // Default $10K
+  if (args) {
+    const amountMatch = args.match(/^(\d+)k?$/i);
+    if (amountMatch) {
+      let amount = parseInt(amountMatch[1], 10);
+      if (amount <= 1000) amount *= 1000;
+      minAmount = Math.max(10000, Math.min(amount, 10000000));
+    }
+  }
+
+  await ctx.replyWithChatAction('typing');
+
+  try {
+    // Get recent whale trades from API + database
+    const whales = await getRecentWhales(minAmount, 10);
+    
+    await ctx.reply(formatWhaleList(whales, minAmount), { 
+      parse_mode: 'MarkdownV2',
+      disable_web_page_preview: true,
+    });
+  } catch (err) {
+    console.error('Whales command error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
 });
 
 // ============ PORTFOLIO COMMANDS ============

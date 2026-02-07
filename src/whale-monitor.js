@@ -1,5 +1,5 @@
 // PolyPulse Whale Monitor
-// Monitors Polymarket for large bets ($50K+) and alerts subscribers
+// Monitors Polymarket for large bets and alerts subscribers
 // Run as: node src/whale-monitor.js
 
 import 'dotenv/config';
@@ -9,17 +9,18 @@ import {
   recordWhaleSent,
   logWhaleEvent,
   getMarketWhaleStats,
+  getRecentWhaleEvents,
 } from './db.js';
 import { formatWhaleAlert } from './format.js';
 
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
 
-// Polymarket CLOB API endpoint
-const CLOB_API = 'https://clob.polymarket.com';
-const GAMMA_API = 'https://gamma-api.polymarket.com';
+// Polymarket Data API endpoint (correct endpoint for trades)
+const DATA_API = 'https://data-api.polymarket.com';
 
-// Minimum bet size to track ($50K)
-const MIN_WHALE_AMOUNT = 50000;
+// Default minimum bet size to track ($10K)
+// Premium users can configure their own threshold (min $10K)
+const DEFAULT_MIN_WHALE_AMOUNT = 10000;
 
 // Track seen transactions to avoid duplicates
 const seenTxHashes = new Set();
@@ -29,14 +30,27 @@ const MAX_SEEN_SIZE = 10000;  // Prevent memory leak
 let lastPollTime = Date.now();
 
 /**
- * Fetch recent large trades from Polymarket
- * Uses the CLOB API to get recent fills
+ * Fetch recent trades from Polymarket Data API
+ * GET https://data-api.polymarket.com/trades?limit=X
+ * 
+ * Response format:
+ * {
+ *   proxyWallet: "0x...",
+ *   side: "BUY" | "SELL",
+ *   size: 1000,        // number of shares
+ *   price: 0.62,       // price per share (0-1)
+ *   timestamp: 1770477499,
+ *   title: "Market question",
+ *   slug: "market-slug",
+ *   outcome: "Yes",    // which outcome they bet on
+ *   transactionHash: "0x...",
+ *   name: "TraderName",
+ *   ...
+ * }
  */
-async function fetchRecentTrades() {
+async function fetchRecentTrades(limit = 200) {
   try {
-    // Get recent trades across all markets
-    // The CLOB API provides trade data with amounts
-    const response = await fetch(`${GAMMA_API}/trades?limit=100`);
+    const response = await fetch(`${DATA_API}/trades?limit=${limit}`);
     
     if (!response.ok) {
       console.error('Trade API error:', response.status);
@@ -53,42 +67,65 @@ async function fetchRecentTrades() {
 
 /**
  * Filter and process whale trades
+ * Trade value in USD = size * price
  */
-async function processWhaleTrades(trades) {
+async function processWhaleTrades(trades, minAmount = DEFAULT_MIN_WHALE_AMOUNT) {
   const whaleTrades = [];
 
   for (const trade of trades) {
-    // Skip if already seen
-    if (trade.id && seenTxHashes.has(trade.id)) continue;
+    // Skip if no transaction hash or already seen
+    const txHash = trade.transactionHash;
+    if (!txHash || seenTxHashes.has(txHash)) continue;
     
     // Calculate trade value in USD
     // Trade amount = shares * price
-    const shares = parseFloat(trade.size || trade.amount || 0);
+    const shares = parseFloat(trade.size || 0);
     const price = parseFloat(trade.price || 0);
     const amountUsd = shares * price;
 
     // Skip if below threshold
-    if (amountUsd < MIN_WHALE_AMOUNT) continue;
+    if (amountUsd < minAmount) continue;
 
     // Mark as seen
-    if (trade.id) {
-      seenTxHashes.add(trade.id);
-      // Cleanup old hashes
-      if (seenTxHashes.size > MAX_SEEN_SIZE) {
-        const toDelete = Array.from(seenTxHashes).slice(0, 1000);
-        toDelete.forEach(h => seenTxHashes.delete(h));
-      }
+    seenTxHashes.add(txHash);
+    
+    // Cleanup old hashes to prevent memory leak
+    if (seenTxHashes.size > MAX_SEEN_SIZE) {
+      const toDelete = Array.from(seenTxHashes).slice(0, 1000);
+      toDelete.forEach(h => seenTxHashes.delete(h));
+    }
+
+    // Determine if this is a YES or NO bet
+    // BUY on "Yes" = betting YES, SELL on "Yes" = betting NO
+    // BUY on "No" = betting NO, SELL on "No" = betting YES
+    const outcome = (trade.outcome || '').toLowerCase();
+    const side = trade.side?.toUpperCase() === 'BUY' ? 'buy' : 'sell';
+    
+    let betSide;
+    if (outcome === 'yes') {
+      betSide = side === 'buy' ? 'YES' : 'NO';
+    } else if (outcome === 'no') {
+      betSide = side === 'buy' ? 'NO' : 'YES';
+    } else {
+      // For non-binary markets, use the outcome name
+      betSide = trade.outcome || 'UNKNOWN';
     }
 
     // Build whale event
     const whaleEvent = {
-      marketId: trade.market || trade.condition_id || 'unknown',
-      marketTitle: trade.market_slug || trade.question || 'Unknown Market',
+      marketId: trade.slug || trade.conditionId || 'unknown',
+      marketTitle: trade.title || 'Unknown Market',
       amountUsd,
-      side: trade.side?.toUpperCase() === 'BUY' ? 'YES' : 'NO',
-      oddsBefore: trade.price_before || null,
-      oddsAfter: trade.price || price,
-      txHash: trade.id || trade.transaction_hash || null,
+      shares,
+      price,
+      side: betSide,
+      outcome: trade.outcome,
+      tradeSide: trade.side, // Original BUY/SELL
+      oddsAfter: price,
+      txHash,
+      timestamp: trade.timestamp,
+      traderName: trade.name || trade.pseudonym || null,
+      traderWallet: trade.proxyWallet || null,
     };
 
     whaleTrades.push(whaleEvent);
@@ -98,17 +135,32 @@ async function processWhaleTrades(trades) {
 }
 
 /**
+ * Get whale tier emoji based on amount
+ */
+function getWhaleTier(amountUsd) {
+  if (amountUsd >= 1000000) return '🐋🐋🐋';  // Mega whale: $1M+
+  if (amountUsd >= 500000) return '🐋🐋';     // Big whale: $500K+
+  if (amountUsd >= 100000) return '🐋';       // Whale: $100K+
+  if (amountUsd >= 50000) return '🦈';        // Shark: $50K+
+  if (amountUsd >= 10000) return '🐬';        // Dolphin: $10K+
+  return '🐟';                                 // Fish: < $10K
+}
+
+/**
  * Send whale alert to a user
  */
 async function sendWhaleAlert(telegramId, event, stats) {
   try {
+    const tier = getWhaleTier(event.amountUsd);
+    const message = formatWhaleAlert(event, stats, tier);
+    
     await bot.api.sendMessage(
       telegramId,
-      formatWhaleAlert(event, stats),
+      message,
       { parse_mode: 'MarkdownV2', disable_web_page_preview: true }
     );
     await recordWhaleSent(telegramId);
-    console.log(`Sent whale alert to ${telegramId}: $${event.amountUsd.toLocaleString()}`);
+    console.log(`Sent whale alert to ${telegramId}: ${tier} $${event.amountUsd.toLocaleString()}`);
     return true;
   } catch (error) {
     console.error(`Failed to send whale alert to ${telegramId}:`, error.message);
@@ -120,7 +172,8 @@ async function sendWhaleAlert(telegramId, event, stats) {
  * Process a single whale event - log and notify subscribers
  */
 async function handleWhaleEvent(event) {
-  console.log(`🐋 Whale detected: $${event.amountUsd.toLocaleString()} on ${event.side} for "${event.marketTitle}"`);
+  const tier = getWhaleTier(event.amountUsd);
+  console.log(`${tier} Whale detected: $${event.amountUsd.toLocaleString()} on ${event.side} for "${event.marketTitle}"`);
 
   // Log to database
   try {
@@ -149,8 +202,11 @@ async function handleWhaleEvent(event) {
  */
 async function pollForWhales() {
   try {
-    const trades = await fetchRecentTrades();
-    const whaleTrades = await processWhaleTrades(trades);
+    const trades = await fetchRecentTrades(200);
+    console.log(`Fetched ${trades.length} trades`);
+    
+    const whaleTrades = await processWhaleTrades(trades, DEFAULT_MIN_WHALE_AMOUNT);
+    console.log(`Found ${whaleTrades.length} whale trades`);
 
     for (const whale of whaleTrades) {
       await handleWhaleEvent(whale);
@@ -161,13 +217,49 @@ async function pollForWhales() {
 }
 
 /**
- * Alternative: WebSocket monitoring for real-time alerts
- * (More complex but faster than polling)
+ * Get recent whale events for display (for /whales command)
+ * Fetches from database + live API
  */
-async function connectWebSocket() {
-  // Polymarket doesn't have a public WebSocket for trades yet
-  // This is a placeholder for future implementation
-  console.log('WebSocket mode not yet implemented, using polling');
+export async function getRecentWhales(minAmount = 10000, limit = 10) {
+  // First, get from database
+  const dbEvents = await getRecentWhaleEvents(24, limit);
+  
+  // Also fetch fresh from API
+  const trades = await fetchRecentTrades(500);
+  const freshWhales = await processWhaleTrades(trades, minAmount);
+  
+  // Combine and deduplicate by tx hash
+  const seen = new Set();
+  const combined = [];
+  
+  // Add fresh whales first (more recent)
+  for (const whale of freshWhales) {
+    if (!seen.has(whale.txHash)) {
+      seen.add(whale.txHash);
+      combined.push(whale);
+    }
+  }
+  
+  // Add database events
+  for (const event of dbEvents) {
+    if (!seen.has(event.tx_hash)) {
+      seen.add(event.tx_hash);
+      combined.push({
+        marketId: event.market_id,
+        marketTitle: event.market_title,
+        amountUsd: parseFloat(event.amount_usd),
+        side: event.side,
+        txHash: event.tx_hash,
+        timestamp: new Date(event.detected_at).getTime() / 1000,
+      });
+    }
+  }
+  
+  // Sort by amount descending and limit
+  return combined
+    .filter(w => w.amountUsd >= minAmount)
+    .sort((a, b) => b.amountUsd - a.amountUsd)
+    .slice(0, limit);
 }
 
 /**
@@ -175,7 +267,8 @@ async function connectWebSocket() {
  */
 async function start() {
   console.log('🐋 PolyPulse Whale Monitor starting...');
-  console.log(`Minimum whale amount: $${MIN_WHALE_AMOUNT.toLocaleString()}`);
+  console.log(`Default minimum whale amount: $${DEFAULT_MIN_WHALE_AMOUNT.toLocaleString()}`);
+  console.log(`Data API: ${DATA_API}/trades`);
 
   // Initial poll
   await pollForWhales();
@@ -187,6 +280,9 @@ async function start() {
 }
 
 // Start if run directly
-start().catch(console.error);
+const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+if (isMainModule) {
+  start().catch(console.error);
+}
 
-export { pollForWhales, handleWhaleEvent };
+export { pollForWhales, handleWhaleEvent, fetchRecentTrades, processWhaleTrades, getWhaleTier };
