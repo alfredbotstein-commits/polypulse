@@ -1,731 +1,1270 @@
 # POLYPULSE UX DESIGNS
-## Implementation-Ready Templates for Isaiah
+## Complete Implementation Spec for Isaiah — Copy-Paste Ready
 
+**Deadline:** 3PM CST Feb 7, 2026  
 **Author:** Raphael (Design Director)  
-**Date:** 2026-02-07  
-**Status:** COMPLETE — Ready for implementation
+**Version:** 1.0
 
 ---
 
-## 1. /start WELCOME FLOW
+# 1. /start WELCOME FLOW
 
-### Message Text (Exact Copy)
+## Welcome Message
+
 ```
-📊 PolyPulse — Real-time Polymarket intelligence
+📊 *PolyPulse* — Real-time Polymarket intelligence
 
-Track odds, set alerts, and never miss a market move.
+Track odds, set alerts, and spot opportunities before they move.
 
 What would you like to do?
 ```
 
-### Button Layout (2x2 Grid)
+### Button Layout
 ```
-Row 1: [🔥 Trending]  [🔍 Browse]
-Row 2: [💼 Portfolio] [⭐ Premium]
+┌─────────────────────────┬─────────────────────────┐
+│   🔥 Trending Markets   │   🔍 Browse Categories  │
+├─────────────────────────┼─────────────────────────┤
+│      💰 My Portfolio    │      ⭐ Go Premium      │
+└─────────────────────────┴─────────────────────────┘
 ```
 
-### Button Callback Data
-| Button | callback_data | Action |
-|--------|---------------|--------|
-| 🔥 Trending | `cmd_trending` | Show top 10 markets by volume |
-| 🔍 Browse | `cmd_browse` | Show category selection grid |
-| 💼 Portfolio | `cmd_portfolio` | Show user's positions or empty state |
-| ⭐ Premium | `cmd_premium` | Show premium features & pricing |
-
-### Button Tap Behaviors
-
-**🔥 Trending →**
-```
-🔥 Trending Markets
-
-1. Will Bitcoin exceed $150K in 2026?
-   📈 67% YES (+5% 24h) | Vol: $2.4M
-   [🔔 Alert] [👀 Watch]
-
-2. Will Trump win 2028 GOP nomination?
-   📈 81% YES (+2% 24h) | Vol: $1.8M
-   [🔔 Alert] [👀 Watch]
-
-[continues for top 10...]
-
-[🔍 Browse Categories] [🔄 Refresh]
-```
-
-**🔍 Browse →**
-Shows category grid (see Section 2)
-
-**💼 Portfolio →**
-If empty:
-```
-💼 Your Portfolio
-
-No positions yet. Start tracking your Polymarket bets!
-
-[🔍 Browse Markets] [🔥 See Trending]
-```
-
-If has positions:
-```
-💼 Your Portfolio
-
-Total Value: $1,240 (+$85 / +7.3%)
-
-1. Bitcoin > $150K
-   100 shares @ $0.52 → now $0.67
-   📈 +$15.00 (+28.8%)
-
-2. Trump 2028 Nomination
-   50 shares @ $0.75 → now $0.81
-   📈 +$3.00 (+8%)
-
-[➕ Add Position] [📊 Detailed P&L]
-```
-
-**⭐ Premium →**
-```
-⭐ PolyPulse Premium — $9.99/mo
-
-Unlock the full trading edge:
-
-🔔 Unlimited Alerts (free: 3)
-👀 Unlimited Watchlist (free: 3)
-💼 Full Portfolio Tracking (free: 1 position)
-🐋 Whale Alerts — get notified when $10K+ positions move
-☀️ Morning Briefing — daily digest at your preferred time
-📊 Priority API — faster updates, no rate limits
-
-[💳 Subscribe Now] [⬅️ Back]
-```
-
----
-
-## 2. CATEGORY BROWSING
-
-### Category Grid Layout (2x5)
-```
-Row 1: [🪙 Crypto]      [🏛️ US Politics]
-Row 2: [🌍 World]       [💻 Tech]
-Row 3: [📈 Economics]   [⚽ Sports]
-Row 4: [🎬 Entertainment] [🔬 Science]
-Row 5: [⚖️ Legal]       [🏥 Health]
-```
-
-### Callback Data Mapping
-| Button | callback_data |
-|--------|---------------|
-| 🪙 Crypto | `cat_crypto` |
-| 🏛️ US Politics | `cat_politics_us` |
-| 🌍 World | `cat_politics_world` |
-| 💻 Tech | `cat_tech` |
-| 📈 Economics | `cat_economics` |
-| ⚽ Sports | `cat_sports` |
-| 🎬 Entertainment | `cat_entertainment` |
-| 🔬 Science | `cat_science` |
-| ⚖️ Legal | `cat_legal` |
-| 🏥 Health | `cat_health` |
-
-### Category Page Template
-```
-{CATEGORY_EMOJI} {CATEGORY_NAME}
-
-1. {MARKET_TITLE}
-   📈 {PROBABILITY}% YES ({CHANGE_DIRECTION}{CHANGE_PERCENT}% 24h) | Vol: {VOLUME}
-   [🔔 Alert] [👀 Watch]
-
-2. {MARKET_TITLE}
-   📈 {PROBABILITY}% YES ({CHANGE_DIRECTION}{CHANGE_PERCENT}% 24h) | Vol: {VOLUME}
-   [🔔 Alert] [👀 Watch]
-
-[...up to 5 markets per page...]
-
-[⬅️ Categories] [➡️ More]
-```
-
-### Example: Crypto Category
-```
-🪙 Crypto Markets
-
-1. Will Bitcoin exceed $150K in 2026?
-   📈 67% YES (+5% 24h) | Vol: $2.4M
-   [🔔 Alert] [👀 Watch]
-
-2. Will Ethereum flip Bitcoin by 2027?
-   📈 12% YES (-2% 24h) | Vol: $890K
-   [🔔 Alert] [👀 Watch]
-
-3. Solana ATH before July 2026?
-   📈 45% YES (+8% 24h) | Vol: $650K
-   [🔔 Alert] [👀 Watch]
-
-4. Will SEC approve spot ETH ETF?
-   📈 73% YES (+1% 24h) | Vol: $1.2M
-   [🔔 Alert] [👀 Watch]
-
-5. Bitcoin dominance > 60% EOY?
-   📈 38% YES (-3% 24h) | Vol: $420K
-   [🔔 Alert] [👀 Watch]
-
-[⬅️ Categories] [➡️ More]
-```
-
----
-
-## 3. COMMAND RESPONSE TEMPLATES
-
-### /trending
-**Response:**
-```
-🔥 Trending Markets
-
-1. {MARKET_TITLE}
-   📈 {PROB}% YES ({CHANGE_DIR}{CHANGE}% 24h) | Vol: ${VOLUME}
-   [🔔 Alert] [👀 Watch]
-
-2. {MARKET_TITLE}
-   📈 {PROB}% YES ({CHANGE_DIR}{CHANGE}% 24h) | Vol: ${VOLUME}
-   [🔔 Alert] [👀 Watch]
-
-[...10 markets total...]
-
-[🔍 Browse Categories] [🔄 Refresh]
-```
-
-**Buttons per market row:** `[🔔 Alert]` `[👀 Watch]`  
-**Bottom buttons:** `[🔍 Browse Categories]` `[🔄 Refresh]`
-
----
-
-### /search {query}
-**With results:**
-```
-🔍 Results for "{QUERY}"
-
-1. {MARKET_TITLE}
-   📈 {PROB}% YES ({CHANGE_DIR}{CHANGE}% 24h)
-   [🔔 Alert] [👀 Watch] [📊 Details]
-
-2. {MARKET_TITLE}
-   📈 {PROB}% YES ({CHANGE_DIR}{CHANGE}% 24h)
-   [🔔 Alert] [👀 Watch] [📊 Details]
-
-[...up to 10 results...]
-
-Showing {COUNT} of {TOTAL} results
-[➡️ More Results] [🔍 New Search]
-```
-
-**Without query (just `/search`):**
-```
-🔍 Search Markets
-
-Type what you're looking for, or browse by category:
-
-[🪙 Crypto] [🏛️ Politics] [⚽ Sports]
-[💻 Tech] [📈 Economics] [🎬 Entertainment]
-```
-
----
-
-### /price {market}
-**Response:**
-```
-📊 {MARKET_TITLE}
-
-Current: {PROB}% YES
-24h Change: {CHANGE_DIR}{CHANGE}%
-Volume: ${VOLUME} ({VOLUME_CHANGE_DIR}{VOLUME_CHANGE}% 24h)
-Liquidity: ${LIQUIDITY}
-
-🐋 Recent Activity:
-• ${WHALE_AMOUNT} {WHALE_SIDE} position {TIME_AGO}
-• ${WHALE_AMOUNT} {WHALE_SIDE} position {TIME_AGO}
-
-[🔔 Set Alert] [👀 Add to Watchlist] [💰 Log Position]
-```
-
-**Without market specified:**
-```
-📊 Price Check
-
-Which market? Browse or search:
-
-[🔥 Trending] [🔍 Browse Categories]
-
-Or type a market name directly.
-```
-
----
-
-### /alert
-**Initial (no market specified):**
-```
-🔔 Set Price Alert
-
-Choose a category to find markets:
-
-[🪙 Crypto] [🏛️ US Politics]
-[🌍 World] [💻 Tech]
-[📈 Economics] [⚽ Sports]
-[🎬 Entertainment] [🔬 Science]
-
-[📋 My Alerts] [🔥 From Trending]
-```
-
-**After market selected:**
-```
-🔔 Alert: {MARKET_TITLE}
-
-Current: {PROB}% YES
-
-Alert me when odds hit:
-
-[25%] [50%] [75%]
-[📝 Custom Threshold]
-
-[⬅️ Back]
-```
-
-**Alert confirmation:**
-```
-✅ Alert Set!
-
-{MARKET_TITLE}
-📍 Alert when: {THRESHOLD}% {DIRECTION}
-Current: {PROB}%
-
-[📋 View All Alerts] [🔔 Set Another] [🔥 Trending]
-```
-
----
-
-### /watch
-**Initial:**
-```
-👀 Add to Watchlist
-
-Choose a category:
-
-[🪙 Crypto] [🏛️ US Politics]
-[🌍 World] [💻 Tech]
-[📈 Economics] [⚽ Sports]
-
-[📋 My Watchlist] [🔥 From Trending]
-```
-
-**Confirmation:**
-```
-✅ Added to Watchlist!
-
-{MARKET_TITLE}
-📈 {PROB}% YES ({CHANGE_DIR}{CHANGE}% 24h)
-
-[📋 View Watchlist] [🔔 Set Alert] [👀 Add Another]
-```
-
-**View watchlist:**
-```
-👀 Your Watchlist ({COUNT}/{MAX})
-
-1. {MARKET_TITLE}
-   📈 {PROB}% YES ({CHANGE_DIR}{CHANGE}% 24h)
-   [🔔 Alert] [❌ Remove]
-
-2. {MARKET_TITLE}
-   📈 {PROB}% YES ({CHANGE_DIR}{CHANGE}% 24h)
-   [🔔 Alert] [❌ Remove]
-
-[➕ Add Market] [🔥 Trending]
-```
-
----
-
-### /portfolio
-**Empty state:**
-```
-💼 Your Portfolio
-
-No positions tracked yet.
-
-Log your first Polymarket position to track P&L!
-
-[➕ Log Position] [🔍 Browse Markets]
-```
-
-**With positions:**
-```
-💼 Your Portfolio
-
-Total: ${TOTAL_VALUE} ({TOTAL_PNL_DIR}${TOTAL_PNL} / {TOTAL_PNL_DIR}{TOTAL_PNL_PCT}%)
-
-1. {MARKET_TITLE}
-   {SHARES} shares @ ${ENTRY} → ${CURRENT}
-   {PNL_DIR}${PNL} ({PNL_DIR}{PNL_PCT}%)
-   [📊 Details] [❌ Close]
-
-2. {MARKET_TITLE}
-   {SHARES} shares @ ${ENTRY} → ${CURRENT}
-   {PNL_DIR}${PNL} ({PNL_DIR}{PNL_PCT}%)
-   [📊 Details] [❌ Close]
-
-[➕ Add Position] [📈 P&L History]
-```
-
----
-
-### /help
-**Response:**
-```
-❓ PolyPulse Help
-
-Quick actions:
-• 🔥 /trending — hottest markets right now
-• 🔍 /search [query] — find any market
-• 📊 /price [market] — current odds & activity
-
-Track markets:
-• 🔔 /alert — get notified on price moves
-• 👀 /watch — add to your watchlist
-• 💼 /portfolio — track your positions
-
-Account:
-• ⭐ /premium — unlock full features
-• ⚙️ /settings — notification preferences
-• 📋 /alerts — manage your alerts
-
-Need help with something specific?
-
-[🔥 Trending] [🔍 Browse] [⭐ Premium]
-```
-
----
-
-## 4. ERROR TEMPLATES
-
-### No Results Found
-```
-😕 No markets found for "{QUERY}"
-
-Try:
-• Different keywords
-• Broader search terms
-• Browse categories instead
-
-[🔍 Browse Categories] [🔥 See Trending]
-```
-
-### Rate Limit Hit
-```
-⏳ Slow down!
-
-Too many requests. Try again in {SECONDS} seconds.
-
-In the meantime:
-[📋 View Watchlist] [💼 My Portfolio]
-```
-
-### Invalid Input
-```
-🤔 I didn't understand that.
-
-Try one of these:
-• Type a market name to check the price
-• Use /help to see all commands
-• Or just tap a button below
-
-[🔥 Trending] [🔍 Browse] [❓ Help]
-```
-
-### Premium Required
-```
-⭐ Premium Feature
-
-{FEATURE_NAME} is available on Premium.
-
-Premium includes:
-• 🔔 Unlimited alerts
-• 🐋 Whale movement alerts
-• ☀️ Daily morning briefing
-• 💼 Full portfolio tracking
-
-Just $9.99/month
-
-[💳 Upgrade Now] [⬅️ Back]
-```
-
-### Market Not Found
-```
-❓ Market not found
-
-I couldn't find "{MARKET_NAME}"
-
-Try browsing instead:
-[🔍 Browse Categories] [🔥 Trending]
-```
-
-### API Error / Temporary Issue
-```
-⚠️ Temporary hiccup
-
-Something went wrong on our end. Try again in a moment.
-
-[🔄 Try Again] [🔥 Trending]
-```
-
----
-
-## 5. UPSELL TEMPLATES
-
-### Alert Limit Hit
-```
-🔔 Alert Limit Reached
-
-You've used 3/3 free alerts.
-
-Premium unlocks:
-• ∞ Unlimited alerts
-• 🐋 Whale alerts ($10K+ moves)
-• ☀️ Morning briefings
-• 💼 Full portfolio tracking
-
-[⭐ Upgrade $9.99/mo] [📋 Manage Alerts]
-```
-
-### Watchlist Limit Hit
-```
-👀 Watchlist Full
-
-You've used 3/3 free watchlist slots.
-
-Premium unlocks:
-• ∞ Unlimited watchlist
-• ☀️ Daily briefing on all your markets
-• 🔔 Unlimited alerts
-• 🐋 Whale movement alerts
-
-[⭐ Upgrade $9.99/mo] [📋 Edit Watchlist]
-```
-
-### Portfolio Limit Hit
-```
-💼 Portfolio Limit Reached
-
-Free tier tracks 1 position.
-
-Premium unlocks:
-• ∞ Unlimited positions
-• 📊 Detailed P&L tracking
-• 🔔 Position alerts
-• 📈 Performance history
-
-[⭐ Upgrade $9.99/mo] [💼 View Position]
-```
-
-### Post-Upgrade Welcome
-```
-🎉 Welcome to Premium!
-
-You now have full access:
-
-✅ Unlimited alerts
-✅ Unlimited watchlist
-✅ Full portfolio tracking
-✅ Whale alerts enabled
-✅ Morning briefings available
-
-Set up your experience:
-
-[☀️ Configure Morning Briefing]
-[🐋 Whale Alert Settings]
-[🔍 Browse Categories]
-```
-
----
-
-## 6. POST-ACTION SUGGESTIONS
-
-Every action ends with relevant next steps. Never leave the user at a dead end.
-
-### After Setting Alert
-```
-✅ Alert set!
-
-{MARKET_TITLE}
-📍 Notify when: {THRESHOLD}%
-
-[📋 See All Alerts] [🔔 Set Another] [🔥 Trending]
-```
-
-### After Checking Price
-```
-[🔔 Set Alert] [👀 Add to Watchlist] [💰 Log Position]
-```
-
-### After Adding to Watchlist
-```
-✅ Added to watchlist!
-
-[📋 View Watchlist] [🔔 Set Alert] [👀 Add Another]
-```
-
-### After Logging Position
-```
-✅ Position logged!
-
-{MARKET_TITLE}
-{SHARES} shares @ ${ENTRY}
-
-[💼 View Portfolio] [📊 Check P&L] [➕ Log Another]
-```
-
-### After Viewing Trending
-Each market shows: `[🔔 Alert] [👀 Watch]`
-Bottom: `[🔍 Browse Categories] [🔄 Refresh]`
-
-### After Viewing Category
-Each market shows: `[🔔 Alert] [👀 Watch]`
-Bottom: `[⬅️ Categories] [➡️ More]`
-
-### After Removing Alert/Watch
-```
-✅ Removed!
-
-[📋 View Remaining] [➕ Add New] [🔥 Trending]
-```
-
-### After Upgrade
-```
-🎉 Welcome to Premium!
-
-Here's what you just unlocked:
-
-[☀️ Set Up Morning Briefing]
-[🐋 Configure Whale Alerts]
-[🔍 Browse Categories]
-```
-
-### After /help
-```
-[🔥 Trending] [🔍 Browse] [⭐ Premium]
-```
-
----
-
-## SMART TEXT HANDLING
-
-When user types bare text (no command), parse intelligently:
-
-| User Input | Action | Response |
-|------------|--------|----------|
-| `bitcoin` / `btc` | Show Bitcoin markets | Price + action buttons |
-| `trump` / `election` | Show political markets | Matching markets list |
-| `what's trending` / `trending` | Treat as /trending | Trending response |
-| `help` / `how does this work` | Treat as /help | Help response |
-| `stop` / `cancel` / `unsubscribe` | Show settings | Subscription management |
-| Unrecognized | Fallback | See below |
-
-### Smart Match Response
-```
-📊 {MARKET_TITLE}
-
-{PROB}% YES ({CHANGE_DIR}{CHANGE}% today)
-Volume: ${VOLUME} | {WHALE_CONTEXT}
-
-[📈 Track It] [🔔 Set Alert] [💰 Buy Position]
-```
-
-### Unrecognized Fallback
-```
-🤔 I didn't catch that.
-
-Try tapping a button or use /help
-
-[🔥 Trending] [🔍 Browse] [❓ Help]
-```
-
----
-
-## IMPLEMENTATION NOTES FOR ISAIAH
-
-### Telegram Inline Keyboard Format
+### Callback Data
 ```javascript
-{
-  reply_markup: {
-    inline_keyboard: [
-      [
-        { text: "🔥 Trending", callback_data: "cmd_trending" },
-        { text: "🔍 Browse", callback_data: "cmd_browse" }
-      ],
-      [
-        { text: "💼 Portfolio", callback_data: "cmd_portfolio" },
-        { text: "⭐ Premium", callback_data: "cmd_premium" }
-      ]
-    ]
-  }
+Row 1: [
+  { text: "🔥 Trending Markets", callback_data: "cmd_trending" },
+  { text: "🔍 Browse Categories", callback_data: "browse_categories" }
+]
+Row 2: [
+  { text: "💰 My Portfolio", callback_data: "cmd_portfolio" },
+  { text: "⭐ Go Premium", callback_data: "cmd_upgrade" }
+]
+```
+
+### Special Cases
+- **If user is Premium:** Change "⭐ Go Premium" to "⭐ Premium Active" (callback: `cmd_premium_status`)
+- **Track analytics:** Log `first_seen` timestamp on /start
+- **No walls of text** — user gets value in ONE TAP
+
+---
+
+## Flow Diagram: /start → First Value
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              USER OPENS BOT                                   │
+│                                  │                                           │
+│                                  ▼                                           │
+│                          ┌──────────────┐                                    │
+│                          │   /start     │                                    │
+│                          │   Welcome    │                                    │
+│                          └──────────────┘                                    │
+│                                  │                                           │
+│          ┌───────────────────────┼───────────────────────┐                   │
+│          ▼                       ▼                       ▼                   │
+│  ┌───────────────┐      ┌───────────────┐      ┌───────────────┐            │
+│  │ 🔥 Trending   │      │ 🔍 Categories │      │ 💰 Portfolio  │            │
+│  │   Markets     │      │               │      │               │            │
+│  └───────────────┘      └───────────────┘      └───────────────┘            │
+│          │                       │                       │                   │
+│          ▼                       ▼                       ▼                   │
+│  ┌───────────────┐      ┌───────────────┐      ┌───────────────┐            │
+│  │ Top 5 markets │      │ 10 category   │      │ User's tracked│            │
+│  │ + quick       │      │ buttons       │      │ positions     │            │
+│  │ actions       │      │               │      │ with P&L      │            │
+│  └───────────────┘      └───────────────┘      └───────────────┘            │
+│          │                       │                       │                   │
+│          │                       ▼                       │                   │
+│          │              ┌───────────────┐                │                   │
+│          │              │ Tap category  │                │                   │
+│          │              │ → 5 markets   │                │                   │
+│          │              └───────────────┘                │                   │
+│          │                       │                       │                   │
+│          └───────────────────────┼───────────────────────┘                   │
+│                                  ▼                                           │
+│                         ┌───────────────┐                                    │
+│                         │  TAP MARKET   │                                    │
+│                         │  Detail view  │                                    │
+│                         │  + Actions    │                                    │
+│                         └───────────────┘                                    │
+│                                  │                                           │
+│          ┌───────────────────────┼───────────────────────┐                   │
+│          ▼                       ▼                       ▼                   │
+│  ┌───────────────┐      ┌───────────────┐      ┌───────────────┐            │
+│  │ 🔔 Set Alert  │      │ 👀 Watch      │      │ 💰 Log Pos.   │            │
+│  └───────────────┘      └───────────────┘      └───────────────┘            │
+│                                                                              │
+│   ⏱️ GOAL: User gets useful data in < 10 seconds, zero typing required      │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+# 2. CATEGORY BROWSING
+
+## Categories Menu
+
+### Message Text
+```
+🔍 *Browse Categories*
+
+Tap a category to explore markets:
+```
+
+### Button Grid Layout
+```
+┌─────────────────────┬─────────────────────┐
+│     🪙 Crypto       │   🏛️ US Politics    │
+├─────────────────────┼─────────────────────┤
+│  🌍 World Politics  │      💻 Tech        │
+├─────────────────────┼─────────────────────┤
+│    📈 Economics     │     ⚽ Sports       │
+├─────────────────────┼─────────────────────┤
+│  🎬 Entertainment   │    🔬 Science       │
+├─────────────────────┼─────────────────────┤
+│      ⚖️ Legal       │     🏥 Health       │
+├─────────────────────┴─────────────────────┤
+│                🏠 Home                    │
+└───────────────────────────────────────────┘
+```
+
+### Complete Callback Data
+```javascript
+const categoryButtons = [
+  [
+    { text: "🪙 Crypto", callback_data: "cat_crypto" },
+    { text: "🏛️ US Politics", callback_data: "cat_us_politics" }
+  ],
+  [
+    { text: "🌍 World Politics", callback_data: "cat_world_politics" },
+    { text: "💻 Tech", callback_data: "cat_tech" }
+  ],
+  [
+    { text: "📈 Economics", callback_data: "cat_economics" },
+    { text: "⚽ Sports", callback_data: "cat_sports" }
+  ],
+  [
+    { text: "🎬 Entertainment", callback_data: "cat_entertainment" },
+    { text: "🔬 Science", callback_data: "cat_science" }
+  ],
+  [
+    { text: "⚖️ Legal", callback_data: "cat_legal" },
+    { text: "🏥 Health", callback_data: "cat_health" }
+  ],
+  [
+    { text: "🏠 Home", callback_data: "cmd_start" }
+  ]
+];
+```
+
+### Category → Polymarket Tag Mapping
+```javascript
+const CATEGORY_TAGS = {
+  crypto: ["bitcoin", "ethereum", "solana", "crypto", "defi"],
+  us_politics: ["politics", "election", "congress", "supreme-court", "president"],
+  world_politics: ["international", "china", "russia", "europe", "war"],
+  tech: ["ai", "apple", "google", "meta", "openai", "tech"],
+  economics: ["fed", "inflation", "gdp", "recession", "rates"],
+  sports: ["ufc", "nfl", "nba", "soccer", "f1", "sports"],
+  entertainment: ["oscars", "box-office", "streaming", "celebrity"],
+  science: ["space", "climate", "nasa", "nobel"],
+  legal: ["court", "trial", "regulation", "indictment"],
+  health: ["fda", "vaccine", "pharma", "pandemic"]
+};
+```
+
+---
+
+## Category Markets View
+
+When user taps a category, show top 5 markets:
+
+### Message Template
+```
+{CATEGORY_EMOJI} *{CATEGORY_NAME}*
+
+Top markets by volume:
+
+1️⃣ *{MARKET_1_TITLE}*
+   └ {YES_PRICE}% YES · Vol: ${VOLUME_1}
+
+2️⃣ *{MARKET_2_TITLE}*
+   └ {YES_PRICE}% YES · Vol: ${VOLUME_2}
+
+3️⃣ *{MARKET_3_TITLE}*
+   └ {YES_PRICE}% YES · Vol: ${VOLUME_3}
+
+4️⃣ *{MARKET_4_TITLE}*
+   └ {YES_PRICE}% YES · Vol: ${VOLUME_4}
+
+5️⃣ *{MARKET_5_TITLE}*
+   └ {YES_PRICE}% YES · Vol: ${VOLUME_5}
+```
+
+### Button Layout
+```
+┌─────┬─────┬─────┬─────┬─────┐
+│ 1️⃣  │ 2️⃣  │ 3️⃣  │ 4️⃣  │ 5️⃣  │  ← Tap number to see market detail
+├─────┴─────┴─────┴─────┴─────┤
+│ ⬅️ Categories │ ➡️ More     │  ← Navigation
+└─────────────────────────────┘
+```
+
+### Callback Data
+```javascript
+const categoryMarketsButtons = (markets, categorySlug, page) => [
+  markets.slice(0, 5).map((m, i) => ({
+    text: `${["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"][i]}`,
+    callback_data: `market_${m.id}`
+  })),
+  [
+    { text: "⬅️ Categories", callback_data: "browse_categories" },
+    { text: "➡️ More", callback_data: `cat_${categorySlug}_page_${page + 1}` }
+  ]
+];
+```
+
+### Volume Formatting Rules
+```javascript
+function formatVolume(vol) {
+  if (vol >= 1_000_000) return `${(vol / 1_000_000).toFixed(1)}M`;
+  if (vol >= 1_000) return `${Math.round(vol / 1_000)}K`;
+  return vol.toString();
 }
 ```
 
-### Callback Data Conventions
-- Commands: `cmd_{command}` (e.g., `cmd_trending`, `cmd_browse`)
-- Categories: `cat_{category}` (e.g., `cat_crypto`, `cat_politics_us`)
-- Market actions: `{action}_{market_id}` (e.g., `alert_abc123`, `watch_abc123`)
-- Pagination: `page_{section}_{number}` (e.g., `page_trending_2`)
-- Navigation: `nav_{destination}` (e.g., `nav_back`, `nav_categories`)
-
-### Variable Placeholders
-Use these in code:
-- `{MARKET_TITLE}` — Full market question
-- `{PROB}` — Current YES probability (integer)
-- `{CHANGE}` — 24h change (absolute value)
-- `{CHANGE_DIR}` — `+` or `-`
-- `{VOLUME}` — Formatted volume (e.g., "2.4M")
-- `{LIQUIDITY}` — Formatted liquidity
-- `{THRESHOLD}` — Alert threshold percentage
-- `{SHARES}` — Number of shares
-- `{ENTRY}` — Entry price
-- `{CURRENT}` — Current price
-- `{PNL}` — Profit/loss amount
-- `{PNL_PCT}` — Profit/loss percentage
-- `{PNL_DIR}` — `+` or `-`
-
-### Response Time Requirements
-- Target: <1 second for all responses
-- If API call takes >500ms: Send ⏳ immediately, then edit message with results
-- Always enable typing indicator while processing
-
-### Button Grid Rules
-- Max 8 buttons per row on mobile
-- 2-3 buttons per row is ideal
-- Always include a back/escape option
-- Never dead-end the user
+### Title Truncation
+```javascript
+function truncateTitle(title, maxLen = 40) {
+  if (title.length <= maxLen) return title;
+  return title.slice(0, maxLen - 3) + "...";
+}
+```
 
 ---
 
-## DEFINITION OF DONE CHECKLIST
+## Market Detail View
 
-For Isaiah to verify before marking complete:
+When user taps a market number:
 
-- [ ] /start shows exact copy + 4-button layout
-- [ ] All 10 categories browsable via buttons
-- [ ] Each category shows top 5+ markets from live API
-- [ ] Every market listing has [🔔 Alert] [👀 Watch] buttons
-- [ ] /trending shows 10 markets with inline action buttons
-- [ ] /search returns results with action buttons
-- [ ] /price shows market + whale activity + action buttons
-- [ ] /alert flow: categories → markets → thresholds (no typing required)
-- [ ] /watch flow: categories → markets (no typing required)
-- [ ] /portfolio shows positions or empty state with next actions
-- [ ] /help shows commands + bottom action buttons
-- [ ] All 4 error templates implemented
-- [ ] All 4 upsell templates implemented (limits enforced)
-- [ ] Post-upgrade welcome flow works
-- [ ] Every response has next-action buttons
-- [ ] Smart text matching for common queries
-- [ ] Fallback response for unrecognized input has buttons
-- [ ] Response time <1 second (or ⏳ shown)
-- [ ] "New user test" passes: value in <10 seconds
+### Message Template
+```
+📊 *{MARKET_TITLE}*
+
+*{YES_PRICE}%* YES · *{NO_PRICE}%* NO
+{PRICE_CHANGE_EMOJI} {PRICE_CHANGE}% today
+
+📈 Volume: *${TOTAL_VOLUME}*
+💧 Liquidity: *${LIQUIDITY}*
+⏰ Closes: *{END_DATE}*
+
+{DESCRIPTION_FIRST_100_CHARS}...
+```
+
+### Button Layout
+```
+┌─────────────────────┬─────────────────────┐
+│    🔔 Set Alert     │      👀 Watch       │
+├─────────────────────┼─────────────────────┤
+│   💰 Log Position   │  📊 Full Details    │
+├─────────────────────┴─────────────────────┤
+│              ⬅️ Back                      │
+└───────────────────────────────────────────┘
+```
+
+### Callback Data
+```javascript
+const marketDetailButtons = (marketId, categorySlug) => [
+  [
+    { text: "🔔 Set Alert", callback_data: `alert_market_${marketId}` },
+    { text: "👀 Watch", callback_data: `watch_market_${marketId}` }
+  ],
+  [
+    { text: "💰 Log Position", callback_data: `buy_market_${marketId}` },
+    { text: "📊 Full Details", callback_data: `details_market_${marketId}` }
+  ],
+  [
+    { text: "⬅️ Back", callback_data: `cat_${categorySlug}` }
+  ]
+];
+```
+
+### Dynamic Button States
+```javascript
+// If user already watching this market:
+{ text: "✅ Watching", callback_data: `unwatch_market_${marketId}` }
+
+// If user already has alert:
+{ text: "✅ Alert Set", callback_data: `alert_manage_${marketId}` }
+```
+
+### Price Change Emoji Logic
+```javascript
+function priceChangeEmoji(change) {
+  if (change > 0) return "📈";
+  if (change < 0) return "📉";
+  return "➡️";
+}
+```
 
 ---
 
-**END OF SPECIFICATION**
+# 3. COMMAND RESPONSE TEMPLATES
 
-*This document contains everything needed to implement the PolyPulse UX. Copy-paste the templates, wire up the callbacks, and ship it.*
+## /trending
+
+### Message Template
+```
+🔥 *Trending Markets*
+
+Markets with biggest moves in 24h:
+
+1️⃣ *{MARKET_1}*
+   └ {PRICE_1}% · {CHANGE_1_EMOJI}*{CHANGE_1}%* · 🐋 {WHALES_1}
+
+2️⃣ *{MARKET_2}*
+   └ {PRICE_2}% · {CHANGE_2_EMOJI}*{CHANGE_2}%* · 🐋 {WHALES_2}
+
+3️⃣ *{MARKET_3}*
+   └ {PRICE_3}% · {CHANGE_3_EMOJI}*{CHANGE_3}%* · 🐋 {WHALES_3}
+
+4️⃣ *{MARKET_4}*
+   └ {PRICE_4}% · {CHANGE_4_EMOJI}*{CHANGE_4}%* · 🐋 {WHALES_4}
+
+5️⃣ *{MARKET_5}*
+   └ {PRICE_5}% · {CHANGE_5_EMOJI}*{CHANGE_5}%* · 🐋 {WHALES_5}
+```
+
+### Button Layout
+```
+┌─────┬─────┬─────┬─────┬─────┐
+│ 1️⃣  │ 2️⃣  │ 3️⃣  │ 4️⃣  │ 5️⃣  │
+├─────┴─────┼─────┴─────┼─────┤
+│ 🔄 Refresh│ 🔍 Browse │ 🏠  │
+└───────────┴───────────┴─────┘
+```
+
+### Callback Data
+```javascript
+const trendingButtons = (markets) => [
+  markets.slice(0, 5).map((m, i) => ({
+    text: `${["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"][i]}`,
+    callback_data: `market_${m.id}`
+  })),
+  [
+    { text: "🔄 Refresh", callback_data: "cmd_trending" },
+    { text: "🔍 Browse", callback_data: "browse_categories" },
+    { text: "🏠", callback_data: "cmd_start" }
+  ]
+];
+```
+
+### Notes
+- Sort by absolute 24h price change
+- 🐋 count = trades > $1,000 in 24h
+- Cache for 5 minutes
+
+---
+
+## /search {query}
+
+### If matches found:
+```
+🔍 *Search Results for "{QUERY}"*
+
+Found {COUNT} markets:
+
+1️⃣ *{MARKET_1}*
+   └ {PRICE_1}% YES · Vol: ${VOLUME_1}
+
+2️⃣ *{MARKET_2}*
+   └ {PRICE_2}% YES · Vol: ${VOLUME_2}
+
+3️⃣ *{MARKET_3}*
+   └ {PRICE_3}% YES · Vol: ${VOLUME_3}
+```
+
+### Button Layout (with results)
+```
+┌─────┬─────┬─────┐
+│ 1️⃣  │ 2️⃣  │ 3️⃣  │
+├─────┴─────┴─────┤
+│  🔍 New Search  │
+├─────────────────┤
+│    🏠 Home      │
+└─────────────────┘
+```
+
+### If NO /search argument provided:
+```
+🔍 *Search Markets*
+
+Type a market name, or browse by category:
+```
+
+**Buttons:** Show full category grid (same as browse_categories)
+
+---
+
+## /price {market}
+
+### With market argument — found:
+```
+📊 *{MARKET_TITLE}*
+
+*{YES_PRICE}%* YES · *{NO_PRICE}%* NO
+{PRICE_CHANGE_EMOJI} {PRICE_CHANGE}% in 24h
+
+📈 Vol: ${VOLUME_24H} (24h) · ${TOTAL_VOLUME} total
+🐋 {WHALE_COUNT} whale trades today
+```
+
+### Button Layout
+```
+┌─────────────────────┬─────────────────────┐
+│    🔔 Set Alert     │  👀 Add to Watchlist│
+├─────────────────────┼─────────────────────┤
+│   💰 Log Position   │   🔍 Browse More    │
+└─────────────────────┴─────────────────────┘
+```
+
+### Callback Data
+```javascript
+const priceButtons = (marketId) => [
+  [
+    { text: "🔔 Set Alert", callback_data: `alert_market_${marketId}` },
+    { text: "👀 Add to Watchlist", callback_data: `watch_market_${marketId}` }
+  ],
+  [
+    { text: "💰 Log Position", callback_data: `buy_market_${marketId}` },
+    { text: "🔍 Browse More", callback_data: "browse_categories" }
+  ]
+];
+```
+
+### Without argument — show browse:
+```
+📊 *Check Market Price*
+
+Select a category to find your market:
+```
+
+**Buttons:** Full category grid + [🔥 Trending] [🏠 Home]
+
+---
+
+## /alert
+
+### Without argument — show browse:
+```
+🔔 *Set Price Alert*
+
+Select a category to find your market:
+```
+
+### Button Layout
+```
+┌─────────────────────┬─────────────────────┐
+│     🪙 Crypto       │   🏛️ US Politics    │
+├─────────────────────┼─────────────────────┤
+│  🌍 World Politics  │      💻 Tech        │
+├─────────────────────┼─────────────────────┤
+│    📈 Economics     │     ⚽ Sports       │
+├─────────────────────┼─────────────────────┤
+│  📋 My Watchlist    │     🏠 Home         │
+└─────────────────────┴─────────────────────┘
+```
+
+### After selecting market — threshold picker:
+```
+🔔 *Set Alert for:*
+📊 {MARKET_TITLE}
+
+Current price: *{YES_PRICE}%* YES
+
+Alert me when YES reaches:
+```
+
+### Threshold Buttons
+```
+┌───────────┬───────────┬───────────┐
+│    25%    │    50%    │    75%    │
+├───────────┼───────────┼───────────┤
+│  ⬆️ +5%   │  ⬇️ -5%   │ ✏️ Custom │
+├───────────┴───────────┴───────────┤
+│           ❌ Cancel               │
+└───────────────────────────────────┘
+```
+
+### Callback Data
+```javascript
+const alertThresholdButtons = (marketId, currentPrice) => [
+  [
+    { text: "25%", callback_data: `alert_set_${marketId}_25` },
+    { text: "50%", callback_data: `alert_set_${marketId}_50` },
+    { text: "75%", callback_data: `alert_set_${marketId}_75` }
+  ],
+  [
+    { text: "⬆️ +5%", callback_data: `alert_set_${marketId}_up5` },
+    { text: "⬇️ -5%", callback_data: `alert_set_${marketId}_down5` },
+    { text: "✏️ Custom", callback_data: `alert_custom_${marketId}` }
+  ],
+  [
+    { text: "❌ Cancel", callback_data: "browse_categories" }
+  ]
+];
+```
+
+### Alert set success:
+```
+✅ *Alert Set!*
+
+📊 {MARKET_TITLE}
+🎯 Alert when: {CONDITION}
+
+I'll notify you the moment it hits.
+```
+
+### Success Buttons
+```
+┌─────────────────────┬─────────────────────┐
+│  📋 View All Alerts │   🔔 Set Another    │
+├─────────────────────┼─────────────────────┤
+│  📊 Check Trending  │      🏠 Home        │
+└─────────────────────┴─────────────────────┘
+```
+
+### Alerts list (/alerts):
+```
+🔔 *Your Alerts* ({COUNT}/{MAX})
+
+{ALERT_1_EMOJI} *{MARKET_1}*
+   └ Alert at {THRESHOLD_1}% (now {CURRENT_1}%)
+
+{ALERT_2_EMOJI} *{MARKET_2}*
+   └ Alert at {THRESHOLD_2}% (now {CURRENT_2}%)
+
+{ALERT_3_EMOJI} *{MARKET_3}*
+   └ Alert at {THRESHOLD_3}% (now {CURRENT_3}%)
+```
+
+### Alert Emoji Logic
+```javascript
+function alertProximityEmoji(threshold, current) {
+  const diff = Math.abs(threshold - current);
+  if (diff <= 5) return "🔴";  // within 5%
+  if (diff <= 10) return "🟡"; // within 10%
+  return "🟢";                  // far away
+}
+```
+
+### Alerts List Buttons
+```
+┌───────┬───────┬───────┐
+│ ❌ 1  │ ❌ 2  │ ❌ 3  │  ← Delete specific alert
+├───────┴───────┴───────┤
+│    🔔 Add Alert       │
+├───────────────────────┤
+│       🏠 Home         │
+└───────────────────────┘
+```
+
+---
+
+## /watch
+
+### Without argument — show browse:
+```
+👀 *Add to Watchlist*
+
+Select a category to find your market:
+```
+
+**Buttons:** Full category grid
+
+### Watch added success:
+```
+👀 *Added to Watchlist!*
+
+📊 {MARKET_TITLE}
+📍 Added at {YES_PRICE}% YES
+
+I'll include this in your daily updates.
+```
+
+### Success Buttons
+```
+┌─────────────────────┬─────────────────────┐
+│  📋 View Watchlist  │    🔔 Set Alert     │
+├─────────────────────┼─────────────────────┤
+│   🔍 Browse More    │      🏠 Home        │
+└─────────────────────┴─────────────────────┘
+```
+
+### Watchlist view (/watchlist):
+```
+👀 *Your Watchlist* ({COUNT}/{MAX})
+
+1️⃣ *{MARKET_1}*
+   └ {PRICE_1}% YES · {CHANGE_1_EMOJI}{CHANGE_1}% since added
+
+2️⃣ *{MARKET_2}*
+   └ {PRICE_2}% YES · {CHANGE_2_EMOJI}{CHANGE_2}% since added
+
+3️⃣ *{MARKET_3}*
+   └ {PRICE_3}% YES · {CHANGE_3_EMOJI}{CHANGE_3}% since added
+```
+
+### Watchlist Buttons
+```
+┌─────┬─────┬─────┐
+│ 1️⃣  │ 2️⃣  │ 3️⃣  │  ← Tap to see market detail
+├─────┴─────┴─────┤
+│   ➕ Add More    │
+├─────────────────┤
+│     🏠 Home     │
+└─────────────────┘
+```
+
+---
+
+## /portfolio
+
+### Empty portfolio:
+```
+💼 *Your Portfolio*
+
+You haven't logged any positions yet.
+
+Track your Polymarket positions here to monitor P&L.
+```
+
+### Empty Buttons
+```
+┌─────────────────────┐
+│   💰 Log Position   │
+├─────────────────────┤
+│   🔍 Browse Markets │
+├─────────────────────┤
+│       🏠 Home       │
+└─────────────────────┘
+```
+
+### With positions:
+```
+💼 *Your Portfolio*
+
+Total Value: *${TOTAL_VALUE}*
+Total P&L: {PNL_EMOJI} *{PNL_AMOUNT}* ({PNL_PERCENT}%)
+
+📊 *Positions:*
+
+1️⃣ *{MARKET_1}*
+   └ {SHARES_1} {SIDE_1} @ {AVG_1}¢ → Now {CURRENT_1}¢
+   └ P&L: {PNL_EMOJI_1} ${PNL_1} ({PNL_PCT_1}%)
+
+2️⃣ *{MARKET_2}*
+   └ {SHARES_2} {SIDE_2} @ {AVG_2}¢ → Now {CURRENT_2}¢
+   └ P&L: {PNL_EMOJI_2} ${PNL_2} ({PNL_PCT_2}%)
+
+3️⃣ *{MARKET_3}*
+   └ {SHARES_3} {SIDE_3} @ {AVG_3}¢ → Now {CURRENT_3}¢
+   └ P&L: {PNL_EMOJI_3} ${PNL_3} ({PNL_PCT_3}%)
+```
+
+### Portfolio Buttons
+```
+┌─────┬─────┬─────┐
+│ 1️⃣  │ 2️⃣  │ 3️⃣  │  ← Tap to manage position
+├─────┴─────┴─────┤
+│ ➕ Log Position  │
+├───────┬─────────┤
+│🔄 Refresh│ 🏠 Home│
+└───────┴─────────┘
+```
+
+### Position Logging Flow:
+
+**Step 1: Select Side**
+```
+💰 *Log Position*
+
+📊 *{MARKET_TITLE}*
+
+Current price: *{YES_PRICE}%* YES / *{NO_PRICE}%* NO
+
+Which side did you buy?
+```
+
+```
+┌───────────┬───────────┐
+│   ✅ YES  │   ❌ NO   │
+├───────────┴───────────┤
+│     ⬅️ Back           │
+└───────────────────────┘
+```
+
+**Step 2: Enter Shares**
+```
+💰 *Log {SIDE} Position*
+
+📊 {MARKET_TITLE}
+
+How many shares did you buy?
+
+_(Just type the number)_
+```
+
+```
+┌───────┬───────┬───────┐
+│  100  │  500  │ 1000  │  ← Quick select
+├───────┴───────┴───────┤
+│       ❌ Cancel       │
+└───────────────────────┘
+```
+
+**Step 3: Enter Price**
+```
+💰 *Log {SIDE} Position*
+
+📊 {MARKET_TITLE}
+📦 {SHARES} shares
+
+What price did you pay per share? (in cents)
+
+Current price: *{CURRENT_PRICE}¢*
+```
+
+```
+┌───────────────────────┐
+│ Current: {CURRENT}¢   │  ← Use current as default
+├───────────────────────┤
+│       ❌ Cancel       │
+└───────────────────────┘
+```
+
+**Step 4: Confirmation**
+```
+✅ *Position Logged!*
+
+📊 {MARKET_TITLE}
+📦 {SHARES} {SIDE} @ {PRICE}¢
+
+Current value: *${CURRENT_VALUE}*
+P&L: {PNL_EMOJI} *${PNL}* ({PNL_PCT}%)
+
+I'll track this for you.
+```
+
+```
+┌─────────────────────┬─────────────────────┐
+│  💼 View Portfolio  │  📊 Market Details  │
+├─────────────────────┼─────────────────────┤
+│    🔔 Set Alert     │   ➕ Log Another    │
+└─────────────────────┴─────────────────────┘
+```
+
+---
+
+# 4. ERROR MESSAGE TEMPLATES
+
+## No Results Found
+
+```
+❌ *Market not found*
+
+I couldn't find a market matching "{QUERY}".
+
+Try browsing by category instead:
+```
+
+### Buttons
+```
+┌─────────────────────┬─────────────────────┐
+│   🔍 Browse Categories  │  🔥 Trending    │
+├─────────────────────┼─────────────────────┤
+│       ❓ Help       │      🏠 Home        │
+└─────────────────────┴─────────────────────┘
+```
+
+---
+
+## Rate Limit Hit
+
+```
+🐢 *Slow down!*
+
+You're sending requests too fast. Wait a few seconds and try again.
+
+_(This protects everyone's experience)_
+```
+
+### Buttons
+```
+┌─────────────────────┐
+│       🏠 Home       │
+└─────────────────────┘
+```
+
+**Implementation note:** Rate limit = 30 requests/minute per user. No action buttons that would trigger more requests.
+
+---
+
+## Invalid Input
+
+```
+🤔 *I didn't understand that*
+
+{SPECIFIC_ERROR}
+
+Try again or browse markets instead:
+```
+
+### SPECIFIC_ERROR examples:
+- "Alert threshold must be between 1-99%"
+- "Number of shares must be a positive number"
+- "That doesn't look like a valid market name"
+- "Please enter a number only"
+
+### Buttons
+```
+┌─────────────────────┬─────────────────────┐
+│      🔍 Browse      │     🔥 Trending     │
+├─────────────────────┼─────────────────────┤
+│       ❓ Help       │      🏠 Home        │
+└─────────────────────┴─────────────────────┘
+```
+
+---
+
+## Premium Required
+
+```
+⭐ *Premium Feature*
+
+{FEATURE_NAME} is a Premium feature.
+
+Upgrade to unlock:
+• {BENEFIT_1}
+• {BENEFIT_2}
+• {BENEFIT_3}
+
+Just *$9.99/month* — cancel anytime.
+```
+
+### Buttons
+```
+┌─────────────────────┬─────────────────────┐
+│   ⭐ Upgrade Now    │    🔥 Trending      │
+├─────────────────────┴─────────────────────┤
+│               🏠 Home                     │
+└───────────────────────────────────────────┘
+```
+
+---
+
+## API Timeout (show after 3 seconds)
+
+```
+⏱️ *Taking longer than usual...*
+
+Polymarket's API is slow right now. Give me a sec.
+
+[Loading...]
+```
+
+### Buttons
+```
+┌─────────────────────┬─────────────────────┐
+│    🔄 Try Again     │      🏠 Home        │
+└─────────────────────┴─────────────────────┘
+```
+
+**Implementation:** Edit this message with actual response when it arrives.
+
+---
+
+## API Down (show after 10 seconds)
+
+```
+😵 *Polymarket API is down*
+
+Their servers aren't responding. This usually fixes itself in a few minutes.
+
+I'll keep trying. Check back soon.
+```
+
+### Buttons
+```
+┌─────────────────────┬─────────────────────┐
+│    🔄 Try Again     │  📊 Cached Trending │
+├─────────────────────┴─────────────────────┤
+│               🏠 Home                     │
+└───────────────────────────────────────────┘
+```
+
+---
+
+# 5. UPSELL MESSAGE TEMPLATES
+
+## Alert Limit Reached (3/3 free)
+
+**Trigger:** Free user tries to set 4th alert
+
+```
+🔔 *Alert Limit Reached*
+
+You've used *3/3* free alerts.
+
+Premium gets you:
+• ♾️ *Unlimited alerts* on any market
+• 🐋 *Whale alerts* — know when big money moves
+• ☀️ *Morning briefings* — daily market digest
+• 💼 *Portfolio tracking* — unlimited positions with P&L
+
+Just *$9.99/month* — less than one good trade.
+```
+
+### Buttons
+```
+┌─────────────────────┬─────────────────────┐
+│   ⭐ Upgrade Now    │   📋 Manage Alerts  │
+├─────────────────────┴─────────────────────┤
+│               🏠 Home                     │
+└───────────────────────────────────────────┘
+```
+
+---
+
+## Watchlist Limit Reached (3/3 free)
+
+**Trigger:** Free user tries to add 4th watchlist item
+
+```
+👀 *Watchlist Full*
+
+You're watching *3/3* markets (free limit).
+
+Premium gets you:
+• ♾️ *Unlimited watchlist* — track every market you care about
+• ☀️ *Daily briefing* on all your watched markets
+• 📊 *Price change alerts* on watchlist items
+• 🐋 *Whale alerts* — big money movement notifications
+
+Just *$9.99/month* — cancel anytime.
+```
+
+### Buttons
+```
+┌─────────────────────┬─────────────────────┐
+│   ⭐ Upgrade Now    │  📋 Edit Watchlist  │
+├─────────────────────┴─────────────────────┤
+│               🏠 Home                     │
+└───────────────────────────────────────────┘
+```
+
+---
+
+## Portfolio Limit Reached (1 free position)
+
+**Trigger:** Free user tries to add 2nd position
+
+```
+💼 *Portfolio Limit Reached*
+
+Free tier tracks *1 position*. You're already tracking:
+• {CURRENT_POSITION_TITLE}
+
+Premium gets you:
+• ♾️ *Unlimited positions* — track your whole portfolio
+• 📈 *P&L tracking* — see gains/losses in real-time
+• 🔔 *P&L alerts* — know when positions move big
+• 📊 *Portfolio analytics* — charts and insights
+
+Just *$9.99/month* — pays for itself in one good trade.
+```
+
+### Buttons
+```
+┌─────────────────────┬─────────────────────┐
+│   ⭐ Upgrade Now    │   💼 View Position  │
+├─────────────────────┴─────────────────────┤
+│               🏠 Home                     │
+└───────────────────────────────────────────┘
+```
+
+---
+
+## Post-Upgrade Welcome
+
+**Trigger:** Immediately after successful Stripe payment
+
+```
+🎉 *Welcome to PolyPulse Premium!*
+
+You just unlocked:
+• ♾️ Unlimited alerts & watchlist
+• 🐋 Whale alerts (big money tracking)
+• ☀️ Morning briefings
+• 💼 Full portfolio tracking
+• 📊 Advanced analytics
+
+Let's set you up:
+```
+
+### Buttons
+```
+┌─────────────────────────┬─────────────────────────┐
+│ ☀️ Set Up Morning Briefing │ 🐋 Enable Whale Alerts │
+├─────────────────────────┼─────────────────────────┤
+│  💼 Start Tracking Portfolio │ 🔍 Browse Markets    │
+├─────────────────────────┴─────────────────────────┤
+│                     🏠 Home                       │
+└───────────────────────────────────────────────────┘
+```
+
+**Critical:** This is the key activation moment. Guide user to USE premium features immediately.
+
+---
+
+# 6. POST-ACTION SUGGESTIONS
+
+Every response must include relevant next actions. Never leave user at dead end.
+
+## Pattern: After Setting Alert
+```
+BUTTONS: [📋 View All Alerts] [🔔 Set Another] [📊 Check Trending] [🏠 Home]
+```
+
+## Pattern: After Checking Price
+```
+BUTTONS: [🔔 Set Alert] [👀 Add to Watchlist] [💰 Log Position] [🔍 Browse More]
+```
+
+## Pattern: After Adding to Watchlist
+```
+BUTTONS: [📋 View Watchlist] [🔔 Set Alert] [🔍 Browse More] [🏠 Home]
+```
+
+## Pattern: After Logging Position
+```
+BUTTONS: [💼 View Portfolio] [📊 Market Details] [🔔 Set Alert] [➕ Log Another]
+```
+
+## Pattern: After Viewing Trending
+```
+INLINE per-market: [🔔] [👀] buttons (if space allows)
+BOTTOM: [🔄 Refresh] [🔍 Browse] [🏠 Home]
+```
+
+## Pattern: After Any Error
+```
+BUTTONS: [🔍 Browse] [🔥 Trending] [❓ Help] [🏠 Home]
+```
+
+## Pattern: After Viewing Category Markets
+```
+INLINE: Number buttons for each market
+BOTTOM: [⬅️ Categories] [➡️ More]
+```
+
+## Button Priority Rules
+1. Most important action = leftmost position
+2. Always include 🏠 Home as escape route
+3. Max 4 buttons per row (Telegram limit)
+4. Context-aware: show relevant next actions, not all actions
+
+---
+
+# 7. SMART TEXT HANDLING
+
+When user types bare text (no / command), handle intelligently:
+
+## Market Keyword Detection
+**Trigger:** User types recognized keyword like "bitcoin", "trump", "ethereum"
+
+```
+📊 *{MARKET_TITLE}*
+
+*{YES_PRICE}%* YES ({CHANGE_EMOJI}{CHANGE}% today)
+
+Want to:
+```
+
+```
+┌─────────────────────┬─────────────────────┐
+│    📈 Track It      │    🔔 Set Alert     │
+├─────────────────────┼─────────────────────┤
+│   💰 Log Position   │   📊 Full Details   │
+└─────────────────────┴─────────────────────┘
+```
+
+**Match priority:** exact match > starts with > contains
+
+---
+
+## Trending Intent
+**Triggers:** "what's hot", "what's trending", "what's moving", "top markets"
+
+**Action:** Treat as /trending, show trending response
+
+---
+
+## Help Intent
+**Triggers:** "help", "how", "what can you do", "commands", "?"
+
+**Action:** Show help message with command list + browse buttons
+
+---
+
+## Stop Intent
+**Triggers:** "stop", "cancel", "unsubscribe", "turn off"
+
+```
+⚙️ *Notification Settings*
+
+What would you like to manage?
+```
+
+```
+┌─────────────────────┬─────────────────────┐
+│   🔔 Manage Alerts  │  👀 Edit Watchlist  │
+├─────────────────────┼─────────────────────┤
+│ ☀️ Briefing Settings │ 🐋 Whale Settings   │
+├─────────────────────┼─────────────────────┤
+│  🚫 Unsubscribe All │      🏠 Home        │
+└─────────────────────┴─────────────────────┘
+```
+
+---
+
+## Unrecognized Input
+**Trigger:** Anything that doesn't match above patterns
+
+```
+🤔 I didn't catch that.
+
+Try typing a market name like "bitcoin" or use the buttons below:
+```
+
+```
+┌─────────────────────┬─────────────────────┐
+│     🔥 Trending     │     🔍 Browse       │
+├─────────────────────┼─────────────────────┤
+│       ❓ Help       │      🏠 Home        │
+└─────────────────────┴─────────────────────┘
+```
+
+**Never a dead end.** Log unrecognized inputs for improvement.
+
+---
+
+# 8. IMPLEMENTATION NOTES
+
+## Callback Data Convention
+```javascript
+// Commands
+"cmd_trending"
+"cmd_start"
+"cmd_portfolio"
+"cmd_upgrade"
+"cmd_alerts"
+"cmd_watchlist"
+"cmd_help"
+
+// Categories
+"browse_categories"
+"cat_crypto"
+"cat_us_politics"
+"cat_world_politics"
+"cat_tech"
+"cat_economics"
+"cat_sports"
+"cat_entertainment"
+"cat_science"
+"cat_legal"
+"cat_health"
+
+// Pagination
+"cat_crypto_page_2"
+"cat_crypto_page_3"
+
+// Market actions
+"market_{id}"
+"alert_market_{id}"
+"watch_market_{id}"
+"buy_market_{id}"
+"details_market_{id}"
+
+// Alert thresholds
+"alert_set_{id}_25"
+"alert_set_{id}_50"
+"alert_set_{id}_75"
+"alert_set_{id}_up5"
+"alert_set_{id}_down5"
+"alert_custom_{id}"
+"alert_delete_{n}"
+
+// Position flow
+"position_side_{id}_yes"
+"position_side_{id}_no"
+"position_shares_{id}_{side}_{amount}"
+"position_price_{id}_{side}_{shares}_current"
+```
+
+## State Machine for Multi-Step Flows
+```javascript
+const USER_STATE = {
+  awaiting_shares: "awaiting_shares_{market_id}_{side}",
+  awaiting_price: "awaiting_price_{market_id}_{side}_{shares}",
+  awaiting_alert_threshold: "awaiting_alert_threshold_{market_id}"
+};
+
+// Clear state after 5 minutes of inactivity
+```
+
+## Response Time Requirements
+- **Target:** < 1 second for all responses
+- **At 2 seconds:** Show ⏳ loading message
+- **At 10 seconds:** Show error with retry option
+- **Always:** Set typing indicator ON while processing
+
+## Telegram Formatting
+```javascript
+// Use MarkdownV2
+// Escape: . - ( ) ! > # + = | { } 
+// *bold* _italic_ `code` 
+
+// Max message length: 4096 chars
+// Max buttons per row: 8 (but prefer 2-4 for usability)
+// Max button rows: 100 (but prefer 4-6)
+```
+
+## Free vs Premium Limits
+```javascript
+const LIMITS = {
+  free: {
+    alerts: 3,
+    watchlist: 3,
+    positions: 1,
+    whaleAlerts: false,
+    morningBriefing: false
+  },
+  premium: {
+    alerts: Infinity,
+    watchlist: Infinity,
+    positions: Infinity,
+    whaleAlerts: true,
+    morningBriefing: true
+  }
+};
+```
+
+---
+
+**END OF SPEC**
+
+**File:** `/Users/albert/clawd/polypulse/POLYPULSE_UX_DESIGNS.md`  
+**Completed:** Feb 7, 2026 @ 7:58 AM CST  
+**Status:** Ready for Isaiah to implement word-for-word  
+
+*— Raphael, Design Director*

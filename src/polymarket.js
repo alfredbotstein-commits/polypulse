@@ -223,6 +223,76 @@ export function getTagEmoji(tagName) {
 }
 
 /**
+ * Priority tags to show first (most popular/useful categories)
+ */
+const PRIORITY_TAGS = [
+  'crypto', 'politics', 'sports', 'tech', 'business', 
+  'economy', 'world', 'entertainment', 'finance', 'science',
+  'ai', 'election', 'legal', 'health'
+];
+
+/**
+ * Get popular tags from API, sorted by relevance
+ * Returns tags suitable for the category browser
+ */
+export async function getPopularTags(limit = 10) {
+  try {
+    const allTags = await fetchTags();
+    
+    // Filter to tags with forceShow or in priority list
+    const prioritized = [];
+    const others = [];
+    
+    for (const tag of allTags) {
+      const slug = (tag.slug || '').toLowerCase();
+      const label = tag.label || tag.slug || '';
+      
+      // Skip very short or numeric tags
+      if (label.length < 2 || /^\d+$/.test(label)) continue;
+      
+      // Check if priority
+      const isPriority = PRIORITY_TAGS.some(p => 
+        slug.includes(p) || p.includes(slug)
+      );
+      
+      const formatted = {
+        id: tag.id,
+        slug: tag.slug,
+        name: label.charAt(0).toUpperCase() + label.slice(1),
+        emoji: getTagEmoji(label),
+        isPriority,
+      };
+      
+      if (isPriority || tag.forceShow) {
+        prioritized.push(formatted);
+      } else {
+        others.push(formatted);
+      }
+    }
+    
+    // Sort priority tags by their order in PRIORITY_TAGS
+    prioritized.sort((a, b) => {
+      const aIdx = PRIORITY_TAGS.findIndex(p => a.slug.includes(p));
+      const bIdx = PRIORITY_TAGS.findIndex(p => b.slug.includes(p));
+      return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+    });
+    
+    // Combine and limit
+    return [...prioritized, ...others].slice(0, limit);
+  } catch (err) {
+    console.error('getPopularTags error:', err.message);
+    // Return fallback categories
+    return Object.entries(CATEGORIES).slice(0, limit).map(([slug, cat]) => ({
+      id: slug,
+      slug,
+      name: cat.name,
+      emoji: cat.emoji,
+      isPriority: true,
+    }));
+  }
+}
+
+/**
  * Fallback category definitions (used when tags API unavailable)
  */
 export const CATEGORIES = {

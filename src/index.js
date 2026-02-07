@@ -66,6 +66,10 @@ import {
   parseOutcomes,
   enrichMarket,
   getMarketsByCategory,
+  getMarketsByTagId,
+  getPopularTags,
+  getTagEmoji,
+  getMarketById,
   CATEGORIES,
 } from './polymarket.js';
 
@@ -2043,19 +2047,35 @@ async function showTrendingWithButtons(ctx, page = 0) {
   }
 }
 
-// Show category browser using dynamic CATEGORIES
+// Show category browser using dynamic tags from API
 async function showCategoryBrowser(ctx) {
   const keyboard = new InlineKeyboard();
   
-  // Build buttons from CATEGORIES
-  const catKeys = Object.keys(CATEGORIES);
-  for (let i = 0; i < catKeys.length; i += 2) {
-    const cat1 = CATEGORIES[catKeys[i]];
-    const cat2 = catKeys[i + 1] ? CATEGORIES[catKeys[i + 1]] : null;
+  try {
+    // Fetch popular tags from API
+    const tags = await getPopularTags(10);
     
-    keyboard.text(`${cat1.emoji} ${cat1.name}`, `cat:${catKeys[i]}`);
-    if (cat2) keyboard.text(`${cat2.emoji} ${cat2.name}`, `cat:${catKeys[i + 1]}`);
-    keyboard.row();
+    // Build buttons in 2 columns
+    for (let i = 0; i < tags.length; i += 2) {
+      const tag1 = tags[i];
+      const tag2 = tags[i + 1];
+      
+      keyboard.text(`${tag1.emoji} ${tag1.name}`, `tag:${tag1.id || tag1.slug}`);
+      if (tag2) keyboard.text(`${tag2.emoji} ${tag2.name}`, `tag:${tag2.id || tag2.slug}`);
+      keyboard.row();
+    }
+  } catch (err) {
+    console.error('showCategoryBrowser error:', err.message);
+    // Fallback to hardcoded categories
+    const catKeys = Object.keys(CATEGORIES);
+    for (let i = 0; i < catKeys.length; i += 2) {
+      const cat1 = CATEGORIES[catKeys[i]];
+      const cat2 = catKeys[i + 1] ? CATEGORIES[catKeys[i + 1]] : null;
+      
+      keyboard.text(`${cat1.emoji} ${cat1.name}`, `cat:${catKeys[i]}`);
+      if (cat2) keyboard.text(`${cat2.emoji} ${cat2.name}`, `cat:${catKeys[i + 1]}`);
+      keyboard.row();
+    }
   }
   
   keyboard.text('🏠 Home', 'action:back_home');
@@ -2198,10 +2218,10 @@ Premium gets you unlimited alerts PLUS 🐋 whale alerts, ☀️ morning briefin
       });
     }
 
-    // Search for the market to get details
-    const markets = await searchMarketsFulltext(marketId, 1);
+    // Look up the market by ID/slug directly (NOT fulltext search)
+    const market = await getMarketById(marketId);
     
-    if (markets.length === 0) {
+    if (!market) {
       const keyboard = new InlineKeyboard()
         .text('🔥 Trending', 'action:trending')
         .text('🏠 Home', 'action:back_home');
@@ -2211,8 +2231,6 @@ Premium gets you unlimited alerts PLUS 🐋 whale alerts, ☀️ morning briefin
         reply_markup: keyboard,
       });
     }
-
-    const market = markets[0];
     const outcomes = parseOutcomes(market);
     const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
     const currentPrice = yesOutcome?.price || 0.5;
@@ -2284,10 +2302,10 @@ Premium gives you unlimited watchlist \\+ daily briefing on all your markets\\.`
       });
     }
 
-    // Search for the market
-    const markets = await searchMarketsFulltext(marketId, 1);
+    // Look up the market by ID/slug directly (NOT fulltext search)
+    const market = await getMarketById(marketId);
     
-    if (markets.length === 0) {
+    if (!market) {
       const keyboard = new InlineKeyboard()
         .text('🔥 Trending', 'action:trending')
         .text('🏠 Home', 'action:back_home');
@@ -2297,8 +2315,6 @@ Premium gives you unlimited watchlist \\+ daily briefing on all your markets\\.`
         reply_markup: keyboard,
       });
     }
-
-    const market = markets[0];
     const outcomes = parseOutcomes(market);
     const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
     const currentPrice = yesOutcome?.price || 0;
