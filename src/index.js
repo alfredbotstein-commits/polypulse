@@ -2,7 +2,7 @@
 // Real-time Polymarket intelligence
 
 import 'dotenv/config';
-import { Bot, GrammyError, HttpError } from 'grammy';
+import { Bot, GrammyError, HttpError, InlineKeyboard } from 'grammy';
 import Stripe from 'stripe';
 import { CONFIG, ERRORS } from './config.js';
 import {
@@ -106,6 +106,7 @@ import {
   formatLeaderboard,
   formatLeaderboardUpsell,
   formatAlreadyPredicted,
+  formatVolume,
 } from './format.js';
 
 // Initialize bot
@@ -132,9 +133,23 @@ bot.use(async (ctx, next) => {
 
 // ============ COMMANDS ============
 
-// /start - Clean welcome
+// /start - Clean welcome with action buttons
 bot.command('start', async (ctx) => {
-  await ctx.reply(formatWelcome(), { parse_mode: 'MarkdownV2' });
+  const keyboard = new InlineKeyboard()
+    .text('🔥 Trending Markets', 'action:trending')
+    .text('🔍 Browse Categories', 'action:categories')
+    .row()
+    .text('💰 My Portfolio', 'action:portfolio')
+    .text('⭐ Go Premium', 'action:upgrade');
+  
+  const msg = `📊 *PolyPulse* — Real\\-time Polymarket intelligence
+
+Track odds, set alerts, and never miss a market move\\.`;
+
+  await ctx.reply(msg, { 
+    parse_mode: 'MarkdownV2',
+    reply_markup: keyboard,
+  });
 });
 
 // /help - Commands list
@@ -1682,6 +1697,685 @@ bot.command('status', async (ctx) => {
 bot.command('cancel', async (ctx) => {
   return ctx.api.sendMessage(ctx.chat.id, 'To cancel an alert, use /cancelalert <id>\\. View your alerts with /alerts first\\.', { parse_mode: 'MarkdownV2' });
 });
+
+// ============ CALLBACK QUERY HANDLERS ============
+
+// Handle all callback queries (button taps)
+bot.on('callback_query:data', async (ctx) => {
+  const data = ctx.callbackQuery.data;
+  
+  // Acknowledge the callback immediately
+  await ctx.answerCallbackQuery();
+  
+  // Route based on callback data prefix
+  if (data.startsWith('action:')) {
+    const action = data.replace('action:', '');
+    await handleMainAction(ctx, action);
+  } else if (data.startsWith('cat:')) {
+    const category = data.replace('cat:', '');
+    await handleCategoryBrowse(ctx, category);
+  } else if (data.startsWith('market:')) {
+    const parts = data.replace('market:', '').split(':');
+    await handleMarketAction(ctx, parts[0], parts[1]);
+  } else if (data.startsWith('alert:')) {
+    const marketId = data.replace('alert:', '');
+    await handleAlertSetup(ctx, marketId);
+  } else if (data.startsWith('threshold:')) {
+    const parts = data.replace('threshold:', '').split(':');
+    await handleAlertThreshold(ctx, parts[0], parts[1]);
+  } else if (data.startsWith('watch:')) {
+    const marketId = data.replace('watch:', '');
+    await handleWatchAdd(ctx, marketId);
+  }
+});
+
+// Main action handler for /start buttons
+async function handleMainAction(ctx, action) {
+  switch (action) {
+    case 'trending':
+      await showTrendingWithButtons(ctx);
+      break;
+    case 'categories':
+      await showCategoryBrowser(ctx);
+      break;
+    case 'portfolio':
+      await showPortfolioWithButtons(ctx);
+      break;
+    case 'upgrade':
+      await showUpgradePrompt(ctx);
+      break;
+    case 'help':
+      await showHelpMenu(ctx);
+      break;
+    case 'back_home':
+      await showHomeMenu(ctx);
+      break;
+    default:
+      await ctx.reply('Unknown action. Try /start');
+  }
+}
+
+// Show home menu (same as /start)
+async function showHomeMenu(ctx) {
+  const keyboard = new InlineKeyboard()
+    .text('🔥 Trending Markets', 'action:trending')
+    .text('🔍 Browse Categories', 'action:categories')
+    .row()
+    .text('💰 My Portfolio', 'action:portfolio')
+    .text('⭐ Go Premium', 'action:upgrade');
+  
+  const msg = `📊 *PolyPulse* — Real\\-time Polymarket intelligence
+
+Track odds, set alerts, and never miss a market move\\.`;
+
+  await ctx.editMessageText(msg, { 
+    parse_mode: 'MarkdownV2',
+    reply_markup: keyboard,
+  });
+}
+
+// Show trending markets with action buttons
+async function showTrendingWithButtons(ctx) {
+  await ctx.editMessageText('⏳ Loading trending markets\\.\\.\\.', { parse_mode: 'MarkdownV2' });
+  
+  try {
+    const markets = await getTrendingMarkets(5);
+    
+    if (!markets?.length) {
+      const keyboard = new InlineKeyboard()
+        .text('🔄 Try Again', 'action:trending')
+        .text('🏠 Home', 'action:back_home');
+      
+      return ctx.editMessageText('📊 No trending markets found\\. Try again in a moment\\.', {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+
+    let msg = `*🔥 Trending Markets*\n\n`;
+    const keyboard = new InlineKeyboard();
+
+    markets.forEach((market, i) => {
+      const outcomes = parseOutcomes(market);
+      const yesPrice = outcomes.find(o => o.name.toLowerCase() === 'yes');
+      const volume = formatVolume(market.volume24hr || 0);
+      const question = truncate(market.question, 40);
+      const marketId = market.id || market.slug;
+      
+      msg += `*${i + 1}\\.* ${escapeMarkdown(question)}\n`;
+      msg += `   YES: *${escapeMarkdown(yesPrice?.pct || '—')}* · ${escapeMarkdown(volume)}\n\n`;
+      
+      // Add action buttons for each market (2 per row)
+      keyboard
+        .text(`🔔 Alert #${i + 1}`, `alert:${marketId}`)
+        .text(`👀 Watch #${i + 1}`, `watch:${marketId}`)
+        .row();
+    });
+
+    keyboard
+      .text('🔍 Browse Categories', 'action:categories')
+      .text('🏠 Home', 'action:back_home');
+
+    await ctx.editMessageText(msg, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+      disable_web_page_preview: true,
+    });
+  } catch (err) {
+    console.error('Trending callback error:', err);
+    const keyboard = new InlineKeyboard()
+      .text('🔄 Try Again', 'action:trending')
+      .text('🏠 Home', 'action:back_home');
+    
+    await ctx.editMessageText('❌ Could not load markets\\. Try again\\.', {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+}
+
+// Show category browser
+async function showCategoryBrowser(ctx) {
+  const keyboard = new InlineKeyboard()
+    .text('🪙 Crypto', 'cat:crypto')
+    .text('🏛️ US Politics', 'cat:politics')
+    .row()
+    .text('🌍 World', 'cat:world')
+    .text('💻 Tech', 'cat:tech')
+    .row()
+    .text('📈 Economics', 'cat:economics')
+    .text('⚽ Sports', 'cat:sports')
+    .row()
+    .text('🎬 Entertainment', 'cat:entertainment')
+    .text('🔬 Science', 'cat:science')
+    .row()
+    .text('⚖️ Legal', 'cat:legal')
+    .text('🏥 Health', 'cat:health')
+    .row()
+    .text('🏠 Home', 'action:back_home');
+
+  const msg = `*🔍 Browse Categories*
+
+Tap a category to see top markets:`;
+
+  await ctx.editMessageText(msg, {
+    parse_mode: 'MarkdownV2',
+    reply_markup: keyboard,
+  });
+}
+
+// Category search terms mapping
+const CATEGORY_KEYWORDS = {
+  crypto: ['bitcoin', 'ethereum', 'solana', 'crypto', 'btc', 'eth'],
+  politics: ['trump', 'biden', 'election', 'congress', 'senate', 'president'],
+  world: ['ukraine', 'china', 'russia', 'israel', 'war', 'nato'],
+  tech: ['apple', 'google', 'ai', 'openai', 'microsoft', 'meta'],
+  economics: ['fed', 'inflation', 'recession', 'gdp', 'interest rate', 'economy'],
+  sports: ['nfl', 'nba', 'ufc', 'super bowl', 'world cup', 'olympics'],
+  entertainment: ['oscar', 'movie', 'netflix', 'celebrity', 'box office'],
+  science: ['space', 'nasa', 'climate', 'nobel', 'mars'],
+  legal: ['court', 'supreme', 'lawsuit', 'trial', 'indictment'],
+  health: ['fda', 'vaccine', 'pandemic', 'drug', 'approval'],
+};
+
+const CATEGORY_EMOJIS = {
+  crypto: '🪙',
+  politics: '🏛️',
+  world: '🌍',
+  tech: '💻',
+  economics: '📈',
+  sports: '⚽',
+  entertainment: '🎬',
+  science: '🔬',
+  legal: '⚖️',
+  health: '🏥',
+};
+
+// Handle category browsing
+async function handleCategoryBrowse(ctx, category) {
+  const emoji = CATEGORY_EMOJIS[category] || '📊';
+  const keywords = CATEGORY_KEYWORDS[category] || [category];
+  
+  await ctx.editMessageText(`${emoji} Loading ${category} markets\\.\\.\\.`, { parse_mode: 'MarkdownV2' });
+  
+  try {
+    // Search using the first keyword for this category
+    let allMarkets = [];
+    
+    // Try each keyword until we get some results
+    for (const keyword of keywords.slice(0, 3)) {
+      const markets = await searchMarketsFulltext(keyword, 10);
+      if (markets.length > 0) {
+        allMarkets = allMarkets.concat(markets);
+      }
+      if (allMarkets.length >= 5) break;
+    }
+    
+    // Deduplicate by market ID
+    const seen = new Set();
+    const uniqueMarkets = allMarkets.filter(m => {
+      const id = m.id || m.slug;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    }).slice(0, 5);
+
+    if (uniqueMarkets.length === 0) {
+      const keyboard = new InlineKeyboard()
+        .text('⬅️ Back to Categories', 'action:categories')
+        .text('🏠 Home', 'action:back_home');
+      
+      return ctx.editMessageText(`${emoji} No markets found in ${escapeMarkdown(category)}\\.`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+
+    let msg = `${emoji} *${escapeMarkdown(category.charAt(0).toUpperCase() + category.slice(1))} Markets*\n\n`;
+    const keyboard = new InlineKeyboard();
+
+    uniqueMarkets.forEach((market, i) => {
+      const outcomes = parseOutcomes(market);
+      const yesPrice = outcomes.find(o => o.name.toLowerCase() === 'yes');
+      const volume = formatVolume(market.volume24hr || 0);
+      const question = truncate(market.question, 40);
+      const marketId = market.id || market.slug;
+      
+      msg += `*${i + 1}\\.* ${escapeMarkdown(question)}\n`;
+      msg += `   YES: *${escapeMarkdown(yesPrice?.pct || '—')}* · ${escapeMarkdown(volume)}\n\n`;
+      
+      // Add action buttons for each market
+      keyboard
+        .text(`🔔 Alert #${i + 1}`, `alert:${marketId}`)
+        .text(`👀 Watch #${i + 1}`, `watch:${marketId}`)
+        .row();
+    });
+
+    keyboard
+      .text('⬅️ Back to Categories', 'action:categories')
+      .text('🏠 Home', 'action:back_home');
+
+    await ctx.editMessageText(msg, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+      disable_web_page_preview: true,
+    });
+  } catch (err) {
+    console.error('Category browse error:', err);
+    const keyboard = new InlineKeyboard()
+      .text('⬅️ Back to Categories', 'action:categories')
+      .text('🏠 Home', 'action:back_home');
+    
+    await ctx.editMessageText('❌ Could not load category\\. Try again\\.', {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+}
+
+// Handle alert setup from button
+async function handleAlertSetup(ctx, marketId) {
+  // Show threshold options
+  const keyboard = new InlineKeyboard()
+    .text('25%', `threshold:${marketId}:25`)
+    .text('50%', `threshold:${marketId}:50`)
+    .text('75%', `threshold:${marketId}:75`)
+    .row()
+    .text('⬅️ Back', 'action:trending')
+    .text('🏠 Home', 'action:back_home');
+
+  await ctx.editMessageText(`*🔔 Set Alert*
+
+Choose a threshold for this market:
+
+When the odds hit your target, you'll get notified\\.`, {
+    parse_mode: 'MarkdownV2',
+    reply_markup: keyboard,
+  });
+}
+
+// Handle alert threshold selection
+async function handleAlertThreshold(ctx, marketId, thresholdStr) {
+  const threshold = parseInt(thresholdStr, 10) / 100;
+  
+  try {
+    // Check alert limits
+    const alertCount = await countUserAlerts(ctx.user.id);
+    const maxAlerts = ctx.isPremium ? Infinity : CONFIG.FREE_LIMITS.alerts;
+
+    if (alertCount >= maxAlerts) {
+      const keyboard = new InlineKeyboard()
+        .text('⭐ Upgrade for Unlimited', 'action:upgrade')
+        .text('📋 Manage Alerts', 'action:alerts')
+        .row()
+        .text('🏠 Home', 'action:back_home');
+
+      return ctx.editMessageText(`*Alert Limit Reached*
+
+You've used ${alertCount}/${maxAlerts} free alerts\\.
+
+Premium gets you unlimited alerts PLUS 🐋 whale alerts, ☀️ morning briefings, and 💼 portfolio tracking\\.`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+
+    // Search for the market to get details
+    const markets = await searchMarketsFulltext(marketId, 1);
+    
+    if (markets.length === 0) {
+      const keyboard = new InlineKeyboard()
+        .text('🔥 Trending', 'action:trending')
+        .text('🏠 Home', 'action:back_home');
+      
+      return ctx.editMessageText('❌ Could not find that market\\.', {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+
+    const market = markets[0];
+    const outcomes = parseOutcomes(market);
+    const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
+    const currentPrice = yesOutcome?.price || 0.5;
+    const direction = currentPrice < threshold ? 'above' : 'below';
+
+    await createAlert(
+      ctx.user.id,
+      ctx.chat.id,
+      market.id || market.slug,
+      market.question,
+      threshold,
+      direction
+    );
+
+    const keyboard = new InlineKeyboard()
+      .text('📋 See All Alerts', 'action:alerts')
+      .text('🔔 Set Another', 'action:trending')
+      .row()
+      .text('🏠 Home', 'action:back_home');
+
+    const thresholdPct = (threshold * 100).toFixed(0);
+    const currentPct = (currentPrice * 100).toFixed(0);
+
+    await ctx.editMessageText(`*✅ Alert Set\\!*
+
+📊 ${escapeMarkdown(truncate(market.question, 45))}
+
+🎯 Target: *${thresholdPct}%* ${direction === 'above' ? '↗️' : '↘️'}
+📍 Current: ${currentPct}%
+
+_You'll be notified when it hits your target\\._`, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  } catch (err) {
+    console.error('Alert threshold error:', err);
+    const keyboard = new InlineKeyboard()
+      .text('🔥 Trending', 'action:trending')
+      .text('🏠 Home', 'action:back_home');
+    
+    await ctx.editMessageText('❌ Could not set alert\\. Try again\\.', {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+}
+
+// Handle watch add from button
+async function handleWatchAdd(ctx, marketId) {
+  try {
+    // Check watchlist limits
+    const watchCount = await countWatchlist(ctx.user.id);
+    const maxWatchlist = ctx.isPremium ? Infinity : CONFIG.FREE_LIMITS.watchlist;
+
+    if (watchCount >= maxWatchlist) {
+      const keyboard = new InlineKeyboard()
+        .text('⭐ Upgrade for Unlimited', 'action:upgrade')
+        .text('📋 View Watchlist', 'action:watchlist')
+        .row()
+        .text('🏠 Home', 'action:back_home');
+
+      return ctx.editMessageText(`*Watchlist Full*
+
+You've used ${watchCount}/${maxWatchlist} watchlist slots\\.
+
+Premium gives you unlimited watchlist \\+ daily briefing on all your markets\\.`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+
+    // Search for the market
+    const markets = await searchMarketsFulltext(marketId, 1);
+    
+    if (markets.length === 0) {
+      const keyboard = new InlineKeyboard()
+        .text('🔥 Trending', 'action:trending')
+        .text('🏠 Home', 'action:back_home');
+      
+      return ctx.editMessageText('❌ Could not find that market\\.', {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+
+    const market = markets[0];
+    const outcomes = parseOutcomes(market);
+    const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
+    const currentPrice = yesOutcome?.price || 0;
+
+    await addToWatchlist(ctx.user.id, market.id || market.slug, market.question, currentPrice);
+
+    const keyboard = new InlineKeyboard()
+      .text('📋 View Watchlist', 'action:watchlist')
+      .text('🔔 Set Alert', `alert:${market.id || market.slug}`)
+      .row()
+      .text('🔍 Browse More', 'action:categories')
+      .text('🏠 Home', 'action:back_home');
+
+    await ctx.editMessageText(`*✅ Added to Watchlist\\!*
+
+📊 ${escapeMarkdown(truncate(market.question, 45))}
+📍 Current: *${escapeMarkdown((currentPrice * 100).toFixed(0))}%*
+
+_Check /watchlist anytime to see updates\\._`, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  } catch (err) {
+    console.error('Watch add error:', err);
+    const keyboard = new InlineKeyboard()
+      .text('🔥 Trending', 'action:trending')
+      .text('🏠 Home', 'action:back_home');
+    
+    await ctx.editMessageText('❌ Could not add to watchlist\\. Try again\\.', {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+}
+
+// Show portfolio with buttons
+async function showPortfolioWithButtons(ctx) {
+  const positionCount = await countOpenPositions(ctx.from.id);
+  
+  if (positionCount === 0) {
+    const keyboard = new InlineKeyboard()
+      .text('🔥 Find Markets', 'action:trending')
+      .text('📖 How to Log Trades', 'action:portfolio_help')
+      .row()
+      .text('🏠 Home', 'action:back_home');
+    
+    return ctx.editMessageText(`*💰 Your Portfolio*
+
+No positions yet\\. 
+
+Log your Polymarket trades here to track P&L:
+\`/buy bitcoin 100 0\\.54\` — 100 shares at 54¢
+\`/sell bitcoin 50 0\\.73\` — Sell at 73¢`, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+
+  await ctx.editMessageText('⏳ Loading portfolio\\.\\.\\.', { parse_mode: 'MarkdownV2' });
+
+  try {
+    const positions = await getPositions(ctx.from.id);
+    let totalInvested = 0;
+    let totalCurrentValue = 0;
+
+    for (const pos of positions) {
+      try {
+        const markets = await searchMarketsFulltext(pos.market_id, 1);
+        let currentPrice = parseFloat(pos.entry_price);
+
+        if (markets.length > 0) {
+          const outcomes = parseOutcomes(markets[0]);
+          const outcome = outcomes.find(o => o.name.toUpperCase() === pos.side.toUpperCase()) || outcomes[0];
+          currentPrice = outcome?.price || currentPrice;
+        }
+
+        const pnl = calculatePositionPnL(pos, currentPrice);
+        totalInvested += pnl.costBasis;
+        totalCurrentValue += pnl.currentValue;
+      } catch {
+        const pnl = calculatePositionPnL(pos, pos.entry_price);
+        totalInvested += pnl.costBasis;
+        totalCurrentValue += pnl.currentValue;
+      }
+    }
+
+    const totalPnl = totalCurrentValue - totalInvested;
+    const totalPnlPercent = totalInvested > 0 ? ((totalCurrentValue / totalInvested) - 1) * 100 : 0;
+    const pnlEmoji = totalPnl >= 0 ? '📈' : '📉';
+    const pnlSign = totalPnl >= 0 ? '+' : '';
+
+    const keyboard = new InlineKeyboard()
+      .text('📊 Full Details', 'action:portfolio_full')
+      .text('💰 Log Trade', 'action:portfolio_help')
+      .row()
+      .text('🏠 Home', 'action:back_home');
+
+    await ctx.editMessageText(`*💰 Portfolio Summary*
+
+${pnlEmoji} *${pnlSign}$${escapeMarkdown(totalPnl.toFixed(2))}* \\(${pnlSign}${escapeMarkdown(totalPnlPercent.toFixed(1))}%\\)
+
+📊 *${positions.length}* open position${positions.length !== 1 ? 's' : ''}
+💵 *$${escapeMarkdown(totalInvested.toFixed(2))}* invested
+📍 *$${escapeMarkdown(totalCurrentValue.toFixed(2))}* current value
+
+_Use /portfolio for full breakdown\\._`, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  } catch (err) {
+    console.error('Portfolio callback error:', err);
+    const keyboard = new InlineKeyboard()
+      .text('🔄 Try Again', 'action:portfolio')
+      .text('🏠 Home', 'action:back_home');
+    
+    await ctx.editMessageText('❌ Could not load portfolio\\.', {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+}
+
+// Show upgrade prompt
+async function showUpgradePrompt(ctx) {
+  if (ctx.isPremium) {
+    const keyboard = new InlineKeyboard()
+      .text('☀️ Set up Briefing', 'action:briefing_setup')
+      .text('🐋 Whale Alerts', 'action:whale_setup')
+      .row()
+      .text('🏠 Home', 'action:back_home');
+    
+    return ctx.editMessageText(`*✨ You're Premium\\!*
+
+Thank you for your support\\. Here's what you unlocked:
+
+• ☀️ Morning briefings
+• 🐋 Whale alerts \\($50K\\+\\)
+• 📊 Unlimited alerts
+• 📋 Unlimited watchlist
+• 💼 Portfolio tracking`, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+
+  // Check if Stripe is configured
+  if (!STRIPE_ENABLED) {
+    const keyboard = new InlineKeyboard()
+      .text('🏠 Home', 'action:back_home');
+    
+    return ctx.editMessageText(`*✨ Premium Coming Soon*
+
+$9\\.99/mo — all the power of Polymarket in your pocket:
+
+• Unlimited price alerts
+• 🐋 Whale movement alerts
+• ☀️ Daily market briefings  
+• 📋 Unlimited watchlist
+• 💼 Full portfolio tracking
+
+_We'll notify you when Premium is available\\._`, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+
+  try {
+    // Create Stripe checkout
+    let customerId = ctx.user.stripe_customer_id;
+
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        metadata: {
+          telegram_id: ctx.from.id.toString(),
+          telegram_username: ctx.from.username || '',
+        },
+      });
+      customerId = customer.id;
+      await setStripeCustomer(ctx.from.id, customerId);
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      mode: 'subscription',
+      line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+      success_url: `${process.env.BOT_URL || 'https://t.me/GetPolyPulse_bot'}?start=upgraded`,
+      cancel_url: `${process.env.BOT_URL || 'https://t.me/GetPolyPulse_bot'}?start=cancelled`,
+      metadata: { telegram_id: ctx.from.id.toString() },
+    });
+
+    const keyboard = new InlineKeyboard()
+      .url('🚀 Start Premium →', session.url)
+      .row()
+      .text('🏠 Home', 'action:back_home');
+
+    await ctx.editMessageText(`*✨ Upgrade to Premium*
+
+*$9\\.99/mo* — cancel anytime
+
+*What you get:*
+• Unlimited price alerts
+• 🐋 Whale movement alerts \\($50K\\+ bets\\)
+• ☀️ Daily market briefings
+• 📋 Unlimited watchlist
+• 💼 Full portfolio tracking
+
+Tap below to start:`, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  } catch (err) {
+    console.error('Upgrade callback error:', err);
+    const keyboard = new InlineKeyboard()
+      .text('🏠 Home', 'action:back_home');
+    
+    await ctx.editMessageText('❌ Could not create checkout\\. Try /upgrade again\\.', {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+}
+
+// Show help menu with buttons
+async function showHelpMenu(ctx) {
+  const keyboard = new InlineKeyboard()
+    .text('🔥 Trending', 'action:trending')
+    .text('🔍 Categories', 'action:categories')
+    .row()
+    .text('💰 Portfolio', 'action:portfolio')
+    .text('⭐ Premium', 'action:upgrade')
+    .row()
+    .text('🏠 Home', 'action:back_home');
+
+  await ctx.editMessageText(`*❓ Quick Help*
+
+*Find Markets*
+• Tap 🔥 Trending for hot markets
+• Tap 🔍 Categories to browse
+• Type /price bitcoin to search
+
+*Track Markets*  
+• Set alerts with 🔔 buttons
+• Add to watchlist with 👀 buttons
+• Or type /alert bitcoin 60
+
+*Your Data*
+• 💰 Portfolio tracks your P&L
+• 📋 /watchlist shows tracked markets
+• 🔔 /alerts shows active alerts
+
+_Full command list: /help_`, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+}
 
 // ============ ALERT POLLING ============
 
