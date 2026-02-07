@@ -64,7 +64,33 @@ import {
   searchMarketsFulltext,
   getTrendingMarkets,
   parseOutcomes,
+  enrichMarket,
+  getMarketsByCategory,
+  CATEGORIES,
 } from './polymarket.js';
+
+// Pagination state storage (in-memory, keyed by user ID)
+const paginationState = new Map();
+const PAGE_SIZE = 5;
+
+/**
+ * Get or initialize pagination state for a user
+ */
+function getPaginationState(userId, listType) {
+  const key = `${userId}:${listType}`;
+  if (!paginationState.has(key)) {
+    paginationState.set(key, { page: 0, total: 0, data: [] });
+  }
+  return paginationState.get(key);
+}
+
+/**
+ * Set pagination state for a user
+ */
+function setPaginationState(userId, listType, state) {
+  const key = `${userId}:${listType}`;
+  paginationState.set(key, state);
+}
 import {
   formatWelcome,
   formatTrending,
@@ -135,6 +161,7 @@ bot.use(async (ctx, next) => {
 
 // /start - Clean welcome with action buttons
 bot.command('start', async (ctx) => {
+  console.log('[DEBUG] /start command triggered by user:', ctx.from?.id);
   try {
     const keyboard = new InlineKeyboard()
       .text('🔥 Trending Markets', 'action:trending')
@@ -347,29 +374,64 @@ _I'll show you matching markets with current odds\\._`,
   await ctx.replyWithChatAction('typing');
 
   try {
-    const markets = await searchMarketsFulltext(query, 5);
+    // Search for more markets to enable pagination
+    const allMarkets = await searchMarketsFulltext(query, 50);
     
-    if (markets.length === 0) {
-      return ctx.reply(formatError('notFound'), { parse_mode: 'MarkdownV2' });
+    if (allMarkets.length === 0) {
+      const keyboard = new InlineKeyboard()
+        .text('🔍 Browse Categories', 'action:categories')
+        .text('🏠 Home', 'action:back_home');
+      
+      return ctx.reply(`🔍 *No results for "${escapeMarkdown(query)}"*\n\n_Try browsing by category instead\\._`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
     }
 
     if (!ctx.isPremium) {
       await incrementUsage(ctx.user, 'search');
     }
 
-    let msg = `*🔍 Results for "${escapeMarkdown(query)}"*\n\n`;
+    const total = allMarkets.length;
+    const totalPages = Math.ceil(total / PAGE_SIZE);
+    const markets = allMarkets.slice(0, PAGE_SIZE);
+
+    let msg = `*🔍 Results for "${escapeMarkdown(query)}"*`;
+    if (totalPages > 1) msg += ` \\(1/${totalPages}\\)`;
+    msg += `\n_${total} markets found_\n\n`;
     
+    const keyboard = new InlineKeyboard();
+
     markets.forEach((m, i) => {
-      const outcomes = parseOutcomes(m);
-      const yesPrice = outcomes.find(o => o.name.toLowerCase() === 'yes');
-      msg += `*${i + 1}\\.* ${escapeMarkdown(truncate(m.question, 50))}\n`;
-      msg += `   YES: *${escapeMarkdown(yesPrice?.pct || '—')}*\n\n`;
+      const market = enrichMarket(m);
+      const question = truncate(market.question, 40);
+      const marketId = market.id || market.slug;
+      
+      // Format with price change context
+      msg += `*${i + 1}\\.* ${escapeMarkdown(question)}\n`;
+      msg += `   ${market.momentum} *${escapeMarkdown(market.yesPct)}* ${escapeMarkdown(market.priceChange)} \\(24h\\) · ${escapeMarkdown(market.volume)}\n\n`;
+      
+      // Add action buttons
+      keyboard
+        .text(`🔔 Alert #${i + 1}`, `alert:${marketId}`)
+        .text(`👀 Watch #${i + 1}`, `watch:${marketId}`)
+        .row();
     });
 
-    msg += `_Get details: /price trump_`;
+    // Pagination if more than one page
+    if (totalPages > 1) {
+      keyboard.text(`1/${totalPages}`, 'noop');
+      keyboard.text('➡️ Next', `page:search:${encodeURIComponent(query)}:1`);
+      keyboard.row();
+    }
+
+    keyboard
+      .text('🔍 Categories', 'action:categories')
+      .text('🏠 Home', 'action:back_home');
 
     await ctx.reply(msg, {
       parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
       disable_web_page_preview: true,
     });
   } catch (err) {
@@ -1714,12 +1776,18 @@ bot.on('callback_query:data', async (ctx) => {
   await ctx.answerCallbackQuery();
   
   // Route based on callback data prefix
-  if (data.startsWith('action:')) {
+  if (data === 'noop') {
+    // Do nothing - for page number display buttons
+    return;
+  } else if (data.startsWith('action:')) {
     const action = data.replace('action:', '');
     await handleMainAction(ctx, action);
   } else if (data.startsWith('cat:')) {
     const category = data.replace('cat:', '');
     await handleCategoryBrowse(ctx, category);
+  } else if (data.startsWith('page:')) {
+    // Handle pagination: page:listType:pageNum OR page:cat:category:pageNum
+    await handlePagination(ctx, data);
   } else if (data.startsWith('market:')) {
     const parts = data.replace('market:', '').split(':');
     await handleMarketAction(ctx, parts[0], parts[1]);
@@ -1740,6 +1808,93 @@ bot.on('callback_query:data', async (ctx) => {
     await handleWhaleAction(ctx, action);
   }
 });
+
+// Handle pagination callbacks
+async function handlePagination(ctx, data) {
+  const parts = data.replace('page:', '').split(':');
+  
+  if (parts[0] === 'trending') {
+    const page = parseInt(parts[1], 10) || 0;
+    await showTrendingWithButtons(ctx, page);
+  } else if (parts[0] === 'cat') {
+    const category = parts[1];
+    const page = parseInt(parts[2], 10) || 0;
+    await handleCategoryBrowse(ctx, category, page);
+  } else if (parts[0] === 'search') {
+    const query = parts[1];
+    const page = parseInt(parts[2], 10) || 0;
+    await handleSearchPagination(ctx, query, page);
+  }
+}
+
+// Handle search results with pagination
+async function handleSearchPagination(ctx, query, page) {
+  try {
+    await ctx.editMessageText('🔍 Searching\\.\\.\\.', { parse_mode: 'MarkdownV2' });
+    
+    const allMarkets = await searchMarketsFulltext(query, 50);
+    const total = allMarkets.length;
+    const totalPages = Math.ceil(total / PAGE_SIZE);
+    
+    if (page < 0) page = 0;
+    if (page >= totalPages && totalPages > 0) page = totalPages - 1;
+    
+    const markets = allMarkets.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+    
+    if (markets.length === 0) {
+      const keyboard = new InlineKeyboard()
+        .text('🔍 Browse Categories', 'action:categories')
+        .text('🏠 Home', 'action:back_home');
+      
+      return ctx.editMessageText(`🔍 No results for "${escapeMarkdown(query)}"\\.\n\n_Try browsing by category\\._`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+    
+    let msg = `*🔍 Results for "${escapeMarkdown(query)}"*`;
+    if (totalPages > 1) msg += ` \\(${page + 1}/${totalPages}\\)`;
+    msg += `\n_${total} markets found_\n\n`;
+    
+    const keyboard = new InlineKeyboard();
+    const startNum = page * PAGE_SIZE;
+    
+    markets.forEach((m, i) => {
+      const market = enrichMarket(m);
+      const question = truncate(market.question, 40);
+      const marketId = market.id || market.slug;
+      
+      msg += `*${startNum + i + 1}\\.* ${escapeMarkdown(question)}\n`;
+      msg += `   ${market.momentum} *${escapeMarkdown(market.yesPct)}* ${escapeMarkdown(market.priceChange)} \\(24h\\) · ${escapeMarkdown(market.volume)}\n\n`;
+      
+      keyboard
+        .text(`🔔 #${startNum + i + 1}`, `alert:${marketId}`)
+        .text(`👀 #${startNum + i + 1}`, `watch:${marketId}`)
+        .row();
+    });
+    
+    // Pagination controls
+    if (totalPages > 1) {
+      if (page > 0) keyboard.text('⬅️ Prev', `page:search:${encodeURIComponent(query)}:${page - 1}`);
+      keyboard.text(`${page + 1}/${totalPages}`, 'noop');
+      if (page < totalPages - 1) keyboard.text('➡️ Next', `page:search:${encodeURIComponent(query)}:${page + 1}`);
+      keyboard.row();
+    }
+    
+    keyboard
+      .text('🔍 Categories', 'action:categories')
+      .text('🏠 Home', 'action:back_home');
+    
+    await ctx.editMessageText(msg, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+      disable_web_page_preview: true,
+    });
+  } catch (err) {
+    console.error('Search pagination error:', err);
+    await ctx.editMessageText('❌ Search failed\\. Try again\\.', { parse_mode: 'MarkdownV2' });
+  }
+}
 
 // Main action handler for /start buttons
 async function handleMainAction(ctx, action) {
@@ -1807,12 +1962,24 @@ Track odds, set alerts, and never miss a market move\\.`;
   });
 }
 
-// Show trending markets with action buttons
-async function showTrendingWithButtons(ctx) {
+// Show trending markets with action buttons AND pagination
+async function showTrendingWithButtons(ctx, page = 0) {
   await ctx.editMessageText('⏳ Loading trending markets\\.\\.\\.', { parse_mode: 'MarkdownV2' });
   
   try {
-    const markets = await getTrendingMarkets(5);
+    // Fetch more markets for pagination
+    const allMarkets = await getTrendingMarkets(50);
+    const total = allMarkets.length;
+    const totalPages = Math.ceil(total / PAGE_SIZE);
+    
+    // Ensure page is in bounds
+    if (page < 0) page = 0;
+    if (page >= totalPages) page = totalPages - 1;
+    
+    const markets = allMarkets.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+    
+    // Save pagination state
+    setPaginationState(ctx.from.id, 'trending', { page, total, data: allMarkets });
     
     if (!markets?.length) {
       const keyboard = new InlineKeyboard()
@@ -1827,26 +1994,35 @@ async function showTrendingWithButtons(ctx) {
 
     let msg = `*🔥 Trending Markets*\n\n`;
     const keyboard = new InlineKeyboard();
+    const startNum = page * PAGE_SIZE;
 
-    markets.forEach((market, i) => {
-      const outcomes = parseOutcomes(market);
-      const yesPrice = outcomes.find(o => o.name.toLowerCase() === 'yes');
-      const volume = formatVolume(market.volume24hr || 0);
+    markets.forEach((m, i) => {
+      const market = enrichMarket(m);
       const question = truncate(market.question, 40);
       const marketId = market.id || market.slug;
       
-      msg += `*${i + 1}\\.* ${escapeMarkdown(question)}\n`;
-      msg += `   YES: *${escapeMarkdown(yesPrice?.pct || '—')}* · ${escapeMarkdown(volume)}\n\n`;
+      // Format with price change context
+      msg += `*${startNum + i + 1}\\.* ${escapeMarkdown(question)}\n`;
+      msg += `   ${market.momentum} *${escapeMarkdown(market.yesPct)}* ${escapeMarkdown(market.priceChange)} \\(24h\\) · ${escapeMarkdown(market.volume)}\n\n`;
       
-      // Add action buttons for each market (2 per row)
+      // Add action buttons for each market
       keyboard
-        .text(`🔔 Alert #${i + 1}`, `alert:${marketId}`)
-        .text(`👀 Watch #${i + 1}`, `watch:${marketId}`)
+        .text(`🔔 #${startNum + i + 1}`, `alert:${marketId}`)
+        .text(`👀 #${startNum + i + 1}`, `watch:${marketId}`)
         .row();
     });
 
+    // Pagination controls
+    if (totalPages > 1) {
+      const pagRow = [];
+      if (page > 0) pagRow.push(keyboard.text('⬅️ Prev', `page:trending:${page - 1}`));
+      pagRow.push(keyboard.text(`${page + 1}/${totalPages}`, 'noop'));
+      if (page < totalPages - 1) pagRow.push(keyboard.text('➡️ Next', `page:trending:${page + 1}`));
+      keyboard.row();
+    }
+
     keyboard
-      .text('🔍 Browse Categories', 'action:categories')
+      .text('🔍 Categories', 'action:categories')
       .text('🏠 Home', 'action:back_home');
 
     await ctx.editMessageText(msg, {
@@ -1867,29 +2043,26 @@ async function showTrendingWithButtons(ctx) {
   }
 }
 
-// Show category browser
+// Show category browser using dynamic CATEGORIES
 async function showCategoryBrowser(ctx) {
-  const keyboard = new InlineKeyboard()
-    .text('🪙 Crypto', 'cat:crypto')
-    .text('🏛️ US Politics', 'cat:politics')
-    .row()
-    .text('🌍 World', 'cat:world')
-    .text('💻 Tech', 'cat:tech')
-    .row()
-    .text('📈 Economics', 'cat:economics')
-    .text('⚽ Sports', 'cat:sports')
-    .row()
-    .text('🎬 Entertainment', 'cat:entertainment')
-    .text('🔬 Science', 'cat:science')
-    .row()
-    .text('⚖️ Legal', 'cat:legal')
-    .text('🏥 Health', 'cat:health')
-    .row()
-    .text('🏠 Home', 'action:back_home');
+  const keyboard = new InlineKeyboard();
+  
+  // Build buttons from CATEGORIES
+  const catKeys = Object.keys(CATEGORIES);
+  for (let i = 0; i < catKeys.length; i += 2) {
+    const cat1 = CATEGORIES[catKeys[i]];
+    const cat2 = catKeys[i + 1] ? CATEGORIES[catKeys[i + 1]] : null;
+    
+    keyboard.text(`${cat1.emoji} ${cat1.name}`, `cat:${catKeys[i]}`);
+    if (cat2) keyboard.text(`${cat2.emoji} ${cat2.name}`, `cat:${catKeys[i + 1]}`);
+    keyboard.row();
+  }
+  
+  keyboard.text('🏠 Home', 'action:back_home');
 
   const msg = `*🔍 Browse Categories*
 
-Tap a category to see top markets:`;
+Tap a category to see markets\\. Each category shows top markets by volume with live odds and 24h price changes\\.`;
 
   await ctx.editMessageText(msg, {
     parse_mode: 'MarkdownV2',
@@ -1897,95 +2070,67 @@ Tap a category to see top markets:`;
   });
 }
 
-// Category search terms mapping
-const CATEGORY_KEYWORDS = {
-  crypto: ['bitcoin', 'ethereum', 'solana', 'crypto', 'btc', 'eth'],
-  politics: ['trump', 'biden', 'election', 'congress', 'senate', 'president'],
-  world: ['ukraine', 'china', 'russia', 'israel', 'war', 'nato'],
-  tech: ['apple', 'google', 'ai', 'openai', 'microsoft', 'meta'],
-  economics: ['fed', 'inflation', 'recession', 'gdp', 'interest rate', 'economy'],
-  sports: ['nfl', 'nba', 'ufc', 'super bowl', 'world cup', 'olympics'],
-  entertainment: ['oscar', 'movie', 'netflix', 'celebrity', 'box office'],
-  science: ['space', 'nasa', 'climate', 'nobel', 'mars'],
-  legal: ['court', 'supreme', 'lawsuit', 'trial', 'indictment'],
-  health: ['fda', 'vaccine', 'pandemic', 'drug', 'approval'],
-};
-
-const CATEGORY_EMOJIS = {
-  crypto: '🪙',
-  politics: '🏛️',
-  world: '🌍',
-  tech: '💻',
-  economics: '📈',
-  sports: '⚽',
-  entertainment: '🎬',
-  science: '🔬',
-  legal: '⚖️',
-  health: '🏥',
-};
-
-// Handle category browsing
-async function handleCategoryBrowse(ctx, category) {
-  const emoji = CATEGORY_EMOJIS[category] || '📊';
-  const keywords = CATEGORY_KEYWORDS[category] || [category];
+// Handle category browsing with pagination
+async function handleCategoryBrowse(ctx, category, page = 0) {
+  const cat = CATEGORIES[category];
+  if (!cat) {
+    return ctx.editMessageText('Unknown category\\.', { parse_mode: 'MarkdownV2' });
+  }
   
-  await ctx.editMessageText(`${emoji} Loading ${category} markets\\.\\.\\.`, { parse_mode: 'MarkdownV2' });
+  await ctx.editMessageText(`${cat.emoji} Loading ${cat.name} markets\\.\\.\\.`, { parse_mode: 'MarkdownV2' });
   
   try {
-    // Search using the first keyword for this category
-    let allMarkets = [];
+    // Get markets for this category with pagination
+    const { markets, total } = await getMarketsByCategory(category, PAGE_SIZE, page * PAGE_SIZE);
+    const totalPages = Math.ceil(total / PAGE_SIZE);
     
-    // Try each keyword until we get some results
-    for (const keyword of keywords.slice(0, 3)) {
-      const markets = await searchMarketsFulltext(keyword, 10);
-      if (markets.length > 0) {
-        allMarkets = allMarkets.concat(markets);
-      }
-      if (allMarkets.length >= 5) break;
-    }
-    
-    // Deduplicate by market ID
-    const seen = new Set();
-    const uniqueMarkets = allMarkets.filter(m => {
-      const id = m.id || m.slug;
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    }).slice(0, 5);
+    // Save pagination state
+    setPaginationState(ctx.from.id, `cat:${category}`, { page, total });
 
-    if (uniqueMarkets.length === 0) {
+    if (markets.length === 0) {
       const keyboard = new InlineKeyboard()
         .text('⬅️ Back to Categories', 'action:categories')
         .text('🏠 Home', 'action:back_home');
       
-      return ctx.editMessageText(`${emoji} No markets found in ${escapeMarkdown(category)}\\.`, {
+      return ctx.editMessageText(`${cat.emoji} No markets found in ${escapeMarkdown(cat.name)}\\.`, {
         parse_mode: 'MarkdownV2',
         reply_markup: keyboard,
       });
     }
 
-    let msg = `${emoji} *${escapeMarkdown(category.charAt(0).toUpperCase() + category.slice(1))} Markets*\n\n`;
+    let msg = `${cat.emoji} *${escapeMarkdown(cat.name)} Markets*`;
+    if (totalPages > 1) msg += ` \\(${page + 1}/${totalPages}\\)`;
+    msg += `\n_${total} markets found_\n\n`;
+    
     const keyboard = new InlineKeyboard();
+    const startNum = page * PAGE_SIZE;
 
-    uniqueMarkets.forEach((market, i) => {
-      const outcomes = parseOutcomes(market);
-      const yesPrice = outcomes.find(o => o.name.toLowerCase() === 'yes');
-      const volume = formatVolume(market.volume24hr || 0);
+    markets.forEach((m, i) => {
+      const market = enrichMarket(m);
       const question = truncate(market.question, 40);
       const marketId = market.id || market.slug;
       
-      msg += `*${i + 1}\\.* ${escapeMarkdown(question)}\n`;
-      msg += `   YES: *${escapeMarkdown(yesPrice?.pct || '—')}* · ${escapeMarkdown(volume)}\n\n`;
+      // Format with price change context
+      msg += `*${startNum + i + 1}\\.* ${escapeMarkdown(question)}\n`;
+      msg += `   ${market.momentum} *${escapeMarkdown(market.yesPct)}* ${escapeMarkdown(market.priceChange)} \\(24h\\) · ${escapeMarkdown(market.volume)}\n\n`;
       
       // Add action buttons for each market
       keyboard
-        .text(`🔔 Alert #${i + 1}`, `alert:${marketId}`)
-        .text(`👀 Watch #${i + 1}`, `watch:${marketId}`)
+        .text(`🔔 #${startNum + i + 1}`, `alert:${marketId}`)
+        .text(`👀 #${startNum + i + 1}`, `watch:${marketId}`)
         .row();
     });
 
+    // Pagination controls
+    if (totalPages > 1) {
+      if (page > 0) keyboard.text('⬅️ Prev', `page:cat:${category}:${page - 1}`);
+      keyboard.text(`${page + 1}/${totalPages}`, 'noop');
+      if (page < totalPages - 1) keyboard.text('➡️ Next', `page:cat:${category}:${page + 1}`);
+      keyboard.row();
+    }
+
     keyboard
-      .text('⬅️ Back to Categories', 'action:categories')
+      .text('⬅️ Categories', 'action:categories')
       .text('🏠 Home', 'action:back_home');
 
     await ctx.editMessageText(msg, {
@@ -2843,6 +2988,7 @@ _Full command list: /help_`, {
 // IMPORTANT: This MUST be registered AFTER all bot.command() handlers
 bot.on('message:text', async (ctx) => {
   const text = ctx.message.text?.trim();
+  console.log('[DEBUG] text handler received:', text, 'from:', ctx.from?.id);
   
   // Skip if empty or is a command (starts with /)
   if (!text || text.startsWith('/')) return;
