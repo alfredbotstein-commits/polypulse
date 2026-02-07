@@ -7,16 +7,8 @@ import { Bot } from 'grammy';
 import {
   getUsersForBriefing,
   markBriefingSent,
-  getWatchlist,
-  getUserAlerts,
-  supabase,
 } from './db.js';
-import {
-  searchMarketsFulltext,
-  getTrendingMarkets,
-  parseOutcomes,
-} from './polymarket.js';
-import { formatMorningBriefing, escapeMarkdown, truncate } from './format.js';
+import { generateBriefingMessage } from './briefing.js';
 
 // Initialize bot for sending
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
@@ -29,115 +21,6 @@ function getCurrentUTCHour() {
 }
 
 /**
- * Fetch user's watchlist with current prices
- */
-async function getWatchlistWithPrices(userId) {
-  const watchlist = await getWatchlist(userId);
-  if (!watchlist || watchlist.length === 0) return [];
-
-  const items = [];
-  for (const item of watchlist.slice(0, 5)) { // Max 5 items in briefing
-    try {
-      const markets = await searchMarketsFulltext(item.market_id, 1);
-      if (markets.length > 0) {
-        const outcomes = parseOutcomes(markets[0]);
-        const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
-        items.push({
-          name: item.market_name,
-          currentPrice: yesOutcome?.price || 0,
-          addedPrice: item.added_price || 0,
-          overnight: true,
-        });
-      }
-    } catch (err) {
-      console.error(`Error fetching watchlist item ${item.market_id}:`, err.message);
-    }
-    // Rate limit protection
-    await new Promise(r => setTimeout(r, 200));
-  }
-
-  return items;
-}
-
-/**
- * Get alerts triggered in the last 24 hours
- */
-async function getTriggeredAlertsLast24h(userId) {
-  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  
-  const { data } = await supabase
-    .from('pp_alerts')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('triggered', true)
-    .gte('triggered_at', yesterday)
-    .order('triggered_at', { ascending: false })
-    .limit(5);
-
-  return data || [];
-}
-
-/**
- * Get top movers (markets with biggest 24h changes)
- */
-async function getTopMovers() {
-  try {
-    // Get trending markets and sort by price change
-    const markets = await getTrendingMarkets(20);
-    
-    // Sort by absolute price change
-    const sorted = markets
-      .map(m => ({
-        ...m,
-        absChange: Math.abs(m.oneDayPriceChange || 0),
-      }))
-      .sort((a, b) => b.absChange - a.absChange)
-      .slice(0, 5);
-
-    return sorted.map(m => {
-      const outcomes = parseOutcomes(m);
-      const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
-      const currentPrice = yesOutcome?.price || 0.5;
-      const change = m.oneDayPriceChange || 0;
-      
-      return {
-        question: m.question,
-        currentPrice,
-        yesterdayPrice: currentPrice - change,
-      };
-    });
-  } catch (err) {
-    console.error('Error getting top movers:', err.message);
-    return [];
-  }
-}
-
-/**
- * Get whale events from last 12 hours (if table exists)
- */
-async function getRecentWhaleEvents() {
-  try {
-    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
-    
-    const { data, error } = await supabase
-      .from('pp_whale_events')
-      .select('*')
-      .gte('detected_at', twelveHoursAgo)
-      .order('amount_usd', { ascending: false })
-      .limit(5);
-
-    if (error) {
-      // Table might not exist yet (P2 feature)
-      return [];
-    }
-
-    return data || [];
-  } catch {
-    return [];
-  }
-}
-
-/**
  * Send briefing to a single user
  */
 async function sendBriefingToUser(briefing) {
@@ -145,37 +28,17 @@ async function sendBriefingToUser(briefing) {
   console.log(`Preparing briefing for user ${telegramId}...`);
 
   try {
-    // Gather all briefing data
-    const [watchlistItems, triggeredAlerts, topMovers, whaleEvents] = await Promise.all([
-      getWatchlistWithPrices(briefing.user.id),
-      getTriggeredAlertsLast24h(briefing.user.id),
-      getTopMovers(),
-      getRecentWhaleEvents(),
-    ]);
-
-    // Build briefing data
-    const data = {
-      watchlistItems,
-      triggeredAlerts,
-      topMovers,
-      whaleEvents,
-      newMarkets: [], // TODO: Implement new market detection
-    };
+    // Generate the briefing message
+    const message = await generateBriefingMessage(briefing.user.id, telegramId);
 
     // Check if we have any content worth sending
-    if (
-      watchlistItems.length === 0 &&
-      triggeredAlerts.length === 0 &&
-      topMovers.length === 0
-    ) {
+    if (!message) {
       console.log(`No meaningful content for user ${telegramId}, skipping...`);
       await markBriefingSent(telegramId);
       return;
     }
 
-    // Format and send
-    const message = formatMorningBriefing(data);
-    
+    // Send the briefing
     await bot.api.sendMessage(telegramId, message, {
       parse_mode: 'MarkdownV2',
       disable_web_page_preview: true,

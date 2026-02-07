@@ -642,6 +642,7 @@ _Upgrade to Premium to enable → /upgrade_`;
   msg += `• New markets worth watching\n\n`;
 
   msg += `*Commands:*\n`;
+  msg += `\`/briefing\` — Get your briefing now\n`;
   msg += `\`/briefing on\` — Enable daily briefing\n`;
   msg += `\`/briefing off\` — Disable briefing\n`;
   msg += `\`/briefing time 7am\` — Set delivery time\n`;

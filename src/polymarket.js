@@ -643,3 +643,45 @@ export async function enrichMarketsWithContext(markets) {
   }
   return results;
 }
+
+/**
+ * Get recently created markets (new in last 24-48 hours)
+ * @param {number} hoursBack - How many hours back to look (default 24)
+ * @param {number} limit - Max markets to return
+ */
+export async function getNewMarkets(hoursBack = 24, limit = 5) {
+  try {
+    const markets = await fetchAllMarkets();
+    const cutoff = Date.now() - hoursBack * 60 * 60 * 1000;
+    
+    // Filter for markets created after cutoff
+    // Markets have createdAt or startDate field
+    const newMarkets = markets
+      .filter(m => {
+        const created = m.createdAt || m.startDate || m.created_at;
+        if (!created) return false;
+        const createdTime = new Date(created).getTime();
+        return createdTime > cutoff && !isNaN(createdTime);
+      })
+      .sort((a, b) => {
+        // Sort by creation date descending (newest first)
+        const aDate = new Date(a.createdAt || a.startDate || a.created_at).getTime();
+        const bDate = new Date(b.createdAt || b.startDate || b.created_at).getTime();
+        return bDate - aDate;
+      })
+      .slice(0, limit);
+    
+    // Enrich with price data
+    return newMarkets.map(m => {
+      const outcomes = parseOutcomes(m);
+      const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
+      return {
+        ...m,
+        price: yesOutcome?.price || 0.5,
+      };
+    });
+  } catch (err) {
+    console.error('getNewMarkets error:', err.message);
+    return [];
+  }
+}

@@ -74,6 +74,7 @@ import {
   CATEGORIES,
 } from './polymarket.js';
 import { getRecentWhales } from './whale-monitor.js';
+import { generateBriefingMessage } from './briefing.js';
 
 // Pagination state storage (in-memory, keyed by user ID)
 const paginationState = new Map();
@@ -212,10 +213,11 @@ bot.command('help', async (ctx) => {
 /unwatch trump — Stop tracking a market
 
 *Morning Briefing \\(Premium\\)*
-/briefing — View briefing settings
+/briefing — Get your personalized briefing now
 /briefing on — Enable daily briefing
 /briefing off — Disable briefing
 /briefing time 7am — Set delivery time
+/briefing settings — View current settings
 /timezone EST — Set your timezone
 
 *Whale Alerts*
@@ -817,7 +819,7 @@ bot.command('briefing', async (ctx) => {
   }
 
   // Handle /briefing time 7am
-  if (args.startsWith('time ')) {
+  if (args && args.startsWith('time ')) {
     const timeStr = args.replace('time ', '').trim();
     const hour = parseTimeString(timeStr);
     
@@ -830,8 +832,50 @@ bot.command('briefing', async (ctx) => {
     return ctx.reply(formatBriefingTimeSet(hour, timezone), { parse_mode: 'MarkdownV2' });
   }
 
-  // No args - show current settings
-  return ctx.reply(formatBriefingSettings(prefs, true), { parse_mode: 'MarkdownV2' });
+  // Handle /briefing now - generate on-demand briefing
+  if (args === 'now' || args === '') {
+    await ctx.replyWithChatAction('typing');
+    
+    try {
+      const message = await generateBriefingMessage(ctx.user.id, ctx.from.id);
+      
+      if (!message) {
+        return ctx.reply(
+          '📭 *No briefing content right now*\n\n_Add markets to your watchlist with /watch, or check back later when there\'s more activity\\._',
+          { parse_mode: 'MarkdownV2' }
+        );
+      }
+
+      await ctx.reply(message, {
+        parse_mode: 'MarkdownV2',
+        disable_web_page_preview: true,
+      });
+    } catch (err) {
+      console.error('On-demand briefing error:', err);
+      await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+    }
+    return;
+  }
+
+  // Handle /briefing settings - show current settings explicitly
+  if (args === 'settings' || args === 'status') {
+    return ctx.reply(formatBriefingSettings(prefs, true), { parse_mode: 'MarkdownV2' });
+  }
+
+  // Unknown subcommand - show help
+  return ctx.reply(
+`☀️ *Morning Briefing Commands*
+
+\`/briefing\` — Get your briefing now
+\`/briefing on\` — Enable daily briefing
+\`/briefing off\` — Disable briefing
+\`/briefing time 7am\` — Set delivery time
+\`/briefing settings\` — View current settings
+\`/timezone PST\` — Set your timezone
+
+_Your briefing includes watchlist changes, triggered alerts, whale moves, and top movers\\._`,
+    { parse_mode: 'MarkdownV2' }
+  );
 });
 
 // /timezone - Set timezone (Premium only)
