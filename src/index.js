@@ -1750,6 +1750,18 @@ async function handleMainAction(ctx, action) {
     case 'back_home':
       await showHomeMenu(ctx);
       break;
+    case 'alerts':
+      await showAlertsWithButtons(ctx);
+      break;
+    case 'watchlist':
+      await showWatchlistWithButtons(ctx);
+      break;
+    case 'portfolio_help':
+      await showPortfolioHelp(ctx);
+      break;
+    case 'portfolio_full':
+      await showPortfolioFull(ctx);
+      break;
     default:
       await ctx.reply('Unknown action. Try /start');
   }
