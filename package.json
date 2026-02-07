@@ -10,7 +10,8 @@
     "webhook": "node src/webhook.js",
     "verify": "node scripts/verify-setup.js",
     "briefing": "node src/briefing-cron.js",
-    "briefing:test": "node scripts/test-briefing.js"
+    "briefing:test": "node scripts/test-briefing.js",
+    "whale": "node src/whale-monitor.js"
   },
   "keywords": [
     "polymarket",

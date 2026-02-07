@@ -116,6 +116,12 @@ bot.command('help', async (ctx) => {
 /briefing time 7am — Set delivery time
 /timezone EST — Set your timezone
 
+*Whale Alerts \\(Premium\\)*
+/whale — View whale alert settings
+/whale on — Enable alerts \\($50K\\+\\)
+/whale 100k — Only alert $100K\\+ bets
+/whale off — Disable alerts
+
 *Account*
 /account — Check my subscription status
 /upgrade — Get Premium \\($9\\.99/mo\\)
