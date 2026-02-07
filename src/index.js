@@ -50,6 +50,15 @@ import {
   addCategorySub,
   removeCategorySub,
   VALID_CATEGORIES,
+  // P6: Predictions / Leaderboard
+  createPrediction,
+  hasUserPredicted,
+  getUserPrediction,
+  getUserPredictions,
+  getUserPredictionStats,
+  getLeaderboard,
+  getUserLeaderboardRank,
+  countMonthlyPredictors,
 } from './db.js';
 import {
   searchMarketsFulltext,
@@ -90,6 +99,13 @@ import {
   formatSubscribeConfirm,
   formatUnsubscribeConfirm,
   formatCategoryUpsell,
+  // P6: Predictions / Leaderboard
+  formatPredictionConfirm,
+  formatPredictions,
+  formatAccuracy,
+  formatLeaderboard,
+  formatLeaderboardUpsell,
+  formatAlreadyPredicted,
 } from './format.js';
 
 // Initialize bot
@@ -171,6 +187,12 @@ bot.command('help', async (ctx) => {
 /subscribe politics,sports — Subscribe to multiple
 /unsubscribe crypto — Unsubscribe from a category
 /mysubs — View your subscriptions
+
+*Predictions \\& Leaderboard*
+/predict bitcoin\\-100k yes — Make a prediction
+/predictions — View your prediction history
+/accuracy — Your accuracy stats
+/leaderboard — Top predictors this month \\(Premium\\)
 
 *Account*
 /account — Check my subscription status
@@ -1249,7 +1271,7 @@ _View current settings: /smartalerts_`,
 // /categories - List available categories
 bot.command('categories', async (ctx) => {
   try {
-    const userSubs = await getCategorySubscriptions(ctx.from.id);
+    const userSubs = await getCategorySubs(ctx.from.id);
     await ctx.reply(formatCategoriesList(userSubs), { parse_mode: 'MarkdownV2' });
   } catch (err) {
     console.error('Categories error:', err);
@@ -1297,7 +1319,7 @@ _See all: /categories_`,
 
   try {
     // Get current subscriptions
-    const currentSubs = await getCategorySubscriptions(ctx.from.id);
+    const currentSubs = await getCategorySubs(ctx.from.id);
     const currentCatNames = currentSubs.map(s => s.category);
     
     // Filter out already subscribed
@@ -1308,7 +1330,7 @@ _See all: /categories_`,
     if (!ctx.isPremium && newCats.length > 0) {
       const currentCount = currentSubs.length;
       if (currentCount >= 1) {
-        return ctx.reply(formatSubscriptionLimitReached(), { parse_mode: 'MarkdownV2' });
+        return ctx.reply(formatCategoryUpsell(), { parse_mode: 'MarkdownV2' });
       }
       // Free users can only add 1 total
       if (newCats.length > 1) {
@@ -1320,12 +1342,12 @@ _See all: /categories_`,
     const added = [];
     for (const cat of newCats) {
       try {
-        await subscribeToCategory(ctx.from.id, cat);
+        await addCategorySub(ctx.from.id, cat);
         added.push(cat);
         
         // Free users can only have 1 total
         if (!ctx.isPremium) {
-          const currentCount = await countCategorySubscriptions(ctx.from.id);
+          const currentCount = await countCategorySubs(ctx.from.id);
           if (currentCount >= 1) break;
         }
       } catch (err) {
@@ -1340,7 +1362,7 @@ _See all: /categories_`,
       );
     }
 
-    await ctx.reply(formatSubscribeConfirmation(added, alreadySubscribed), { parse_mode: 'MarkdownV2' });
+    await ctx.reply(formatSubscribeConfirm(added), { parse_mode: 'MarkdownV2' });
   } catch (err) {
     console.error('Subscribe error:', err);
     await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
@@ -1374,7 +1396,7 @@ _Check your subscriptions: /mysubs_`,
   }
 
   try {
-    const removed = await unsubscribeFromCategory(ctx.from.id, category);
+    const removed = await removeCategorySub(ctx.from.id, category);
     
     if (!removed) {
       return ctx.reply(
@@ -1383,7 +1405,7 @@ _Check your subscriptions: /mysubs_`,
       );
     }
 
-    await ctx.reply(formatUnsubscribeConfirmation(category), { parse_mode: 'MarkdownV2' });
+    await ctx.reply(formatUnsubscribeConfirm(category), { parse_mode: 'MarkdownV2' });
   } catch (err) {
     console.error('Unsubscribe error:', err);
     await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
@@ -1393,10 +1415,152 @@ _Check your subscriptions: /mysubs_`,
 // /mysubs - View active category subscriptions
 bot.command('mysubs', async (ctx) => {
   try {
-    const subs = await getCategorySubscriptions(ctx.from.id);
-    await ctx.reply(formatMySubscriptions(subs, ctx.isPremium), { parse_mode: 'MarkdownV2' });
+    const subs = await getCategorySubs(ctx.from.id);
+    await ctx.reply(formatMySubs(subs, ctx.isPremium), { parse_mode: 'MarkdownV2' });
   } catch (err) {
     console.error('Mysubs error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// ============ PREDICTION / LEADERBOARD COMMANDS ============
+
+// /predict <market> <yes|no> - Make a prediction
+bot.command('predict', async (ctx) => {
+  const args = ctx.match?.trim();
+
+  if (!args) {
+    return ctx.reply(
+`🎯 *Make a Prediction*
+
+Predict the outcome of any market — for free\\!
+
+*Usage:*
+\`/predict bitcoin\\-100k yes\` — Predict YES
+\`/predict trump no\` — Predict NO
+
+*How it works:*
+• Find a market with /trending or /search
+• Make your prediction
+• We track your accuracy over time
+• Top predictors make the leaderboard 🏆
+
+_Start with: /predict bitcoin yes_`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  // Parse: everything before last word is market query, last word is prediction
+  const parts = args.trim().split(/\s+/);
+  const lastWord = parts[parts.length - 1].toLowerCase();
+  
+  // Check if last word is a valid prediction (yes/no)
+  if (lastWord !== 'yes' && lastWord !== 'no') {
+    return ctx.reply(
+      '❌ End with "yes" or "no"\\. Example: `/predict bitcoin yes`',
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  const prediction = lastWord.toUpperCase();
+  const marketQuery = parts.slice(0, -1).join(' ');
+
+  if (!marketQuery) {
+    return ctx.reply(
+      '❌ Specify a market\\. Example: `/predict bitcoin\\-100k yes`',
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  await ctx.replyWithChatAction('typing');
+
+  try {
+    // Find the market
+    const markets = await searchMarketsFulltext(marketQuery, 1);
+    
+    if (markets.length === 0) {
+      return ctx.reply(formatError('notFound'), { parse_mode: 'MarkdownV2' });
+    }
+
+    const market = markets[0];
+    const marketId = market.id || market.slug;
+
+    // Check if user already predicted on this market
+    const alreadyPredicted = await hasUserPredicted(ctx.from.id, marketId);
+    if (alreadyPredicted) {
+      const existing = await getUserPrediction(ctx.from.id, marketId);
+      return ctx.reply(formatAlreadyPredicted(existing), { parse_mode: 'MarkdownV2' });
+    }
+
+    // Get current odds
+    const outcomes = parseOutcomes(market);
+    const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
+    const currentOdds = yesOutcome?.price || 0.5;
+
+    // Create the prediction
+    await createPrediction(
+      ctx.from.id,
+      marketId,
+      market.question,
+      prediction,
+      currentOdds
+    );
+
+    await ctx.reply(formatPredictionConfirm(market, prediction, currentOdds), { 
+      parse_mode: 'MarkdownV2' 
+    });
+  } catch (err) {
+    console.error('Predict error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// /predictions - View prediction history
+bot.command('predictions', async (ctx) => {
+  try {
+    const predictions = await getUserPredictions(ctx.from.id, 20);
+    const stats = await getUserPredictionStats(ctx.from.id);
+    
+    await ctx.reply(formatPredictions(predictions, stats), { parse_mode: 'MarkdownV2' });
+  } catch (err) {
+    console.error('Predictions error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// /accuracy - Your accuracy stats
+bot.command('accuracy', async (ctx) => {
+  try {
+    const stats = await getUserPredictionStats(ctx.from.id);
+    const leaderboardRank = await getUserLeaderboardRank(ctx.from.id);
+    
+    await ctx.reply(formatAccuracy(stats, leaderboardRank), { parse_mode: 'MarkdownV2' });
+  } catch (err) {
+    console.error('Accuracy error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// /leaderboard - Top predictors this month
+bot.command('leaderboard', async (ctx) => {
+  // Premium only for full leaderboard
+  if (!ctx.isPremium) {
+    const stats = await getUserPredictionStats(ctx.from.id);
+    return ctx.reply(formatLeaderboardUpsell(stats), { parse_mode: 'MarkdownV2' });
+  }
+
+  try {
+    await ctx.replyWithChatAction('typing');
+    
+    const entries = await getLeaderboard(10);
+    const userRank = await getUserLeaderboardRank(ctx.from.id);
+    const totalPredictors = await countMonthlyPredictors();
+    
+    await ctx.reply(formatLeaderboard(entries, userRank, totalPredictors), { 
+      parse_mode: 'MarkdownV2' 
+    });
+  } catch (err) {
+    console.error('Leaderboard error:', err);
     await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
   }
 });

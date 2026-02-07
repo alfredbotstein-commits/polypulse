@@ -1006,15 +1006,19 @@ const CATEGORY_INFO = {
 /**
  * Format available categories list
  */
-export function formatCategoriesList() {
+export function formatCategoriesList(userSubs = []) {
+  // Build a set of subscribed categories for quick lookup
+  const subscribedCats = new Set((userSubs || []).map(s => s.category));
+  
   let msg = `📂 *Available Categories*\n\n`;
   msg += `Subscribe to entire categories to get:\n`;
-  msg += `• Daily category digest in morning briefing\n`;
-  msg += `• Alerts when any market moves 10%\\+\n`;
-  msg += `• Notifications for new markets\n\n`;
+  msg += `• Alerts for new markets in your categories\n`;
+  msg += `• Category\\-specific updates\n\n`;
 
   for (const [key, info] of Object.entries(CATEGORY_INFO)) {
-    msg += `${info.emoji} *${escapeMarkdown(info.name)}*\n`;
+    const isSubscribed = subscribedCats.has(key);
+    const checkmark = isSubscribed ? ' ✅' : '';
+    msg += `${info.emoji} *${escapeMarkdown(info.name)}*${checkmark}\n`;
     msg += `   _${escapeMarkdown(info.desc)}_\n\n`;
   }
 
@@ -1171,6 +1175,236 @@ export function formatCategoryDigest(categoryData) {
   }
 
   return msg;
+}
+
+// ============ PREDICTIONS / LEADERBOARD ============
+
+/**
+ * Format prediction confirmation
+ */
+export function formatPredictionConfirm(market, prediction, odds) {
+  const emoji = prediction === 'YES' ? '✅' : '❌';
+  const oddsPct = (odds * 100).toFixed(0);
+
+  return `${emoji} *Prediction recorded\\!*
+
+📊 ${escapeMarkdown(truncate(market.question, 50))}
+
+Your call: *${prediction}*
+Odds at prediction: *${oddsPct}%*
+
+_Check your accuracy: /accuracy_
+_View predictions: /predictions_`;
+}
+
+/**
+ * Format user's prediction history
+ */
+export function formatPredictions(predictions, stats) {
+  if (!predictions || predictions.length === 0) {
+    return `🎯 *No predictions yet*
+
+Make your first prediction\\!
+
+*How to predict:*
+\`/predict bitcoin\\-100k yes\`
+\`/predict trump no\`
+
+_Find a market first with /trending or /search_`;
+  }
+
+  let msg = `🎯 *Your Predictions*\n\n`;
+
+  // Show recent predictions
+  predictions.slice(0, 10).forEach((pred, i) => {
+    const title = truncate(pred.market_title, 35);
+    const predEmoji = pred.prediction === 'YES' ? '✅' : '❌';
+    const oddsPct = pred.odds_at_prediction 
+      ? `${(pred.odds_at_prediction * 100).toFixed(0)}%` 
+      : '—';
+
+    let statusEmoji = '⏳'; // pending
+    if (pred.resolved) {
+      statusEmoji = pred.correct ? '🟢' : '🔴';
+    }
+
+    msg += `${statusEmoji} ${predEmoji} ${escapeMarkdown(title)}\n`;
+    msg += `   _Predicted at ${escapeMarkdown(oddsPct)}_\n\n`;
+  });
+
+  if (predictions.length > 10) {
+    msg += `_\\.\\.\\. and ${predictions.length - 10} more_\n\n`;
+  }
+
+  msg += `📊 *Quick Stats:* ${stats.allTime.correct}/${stats.allTime.resolved} correct \\(${stats.allTime.accuracy.toFixed(0)}%\\)\n\n`;
+  msg += `_Detailed stats: /accuracy_`;
+
+  return msg;
+}
+
+/**
+ * Format user's accuracy stats
+ */
+export function formatAccuracy(stats, leaderboardRank) {
+  const { allTime, thisMonth, streak, categoryStats } = stats;
+
+  let msg = `🎯 *YOUR PREDICTION ACCURACY*\n\n`;
+
+  // All-time stats
+  msg += `*All\\-time:* ${allTime.accuracy.toFixed(0)}% correct \\(${allTime.correct}/${allTime.resolved} predictions\\)\n`;
+  msg += `*This month:* ${thisMonth.accuracy.toFixed(0)}% correct \\(${thisMonth.correct}/${thisMonth.resolved}\\)\n`;
+  
+  // Streak
+  if (streak > 0) {
+    msg += `*Streak:* 🔥 ${streak} correct in a row\\!\n`;
+  }
+
+  msg += `\n`;
+
+  // Category breakdown
+  if (Object.keys(categoryStats).length > 0) {
+    // Find best and worst categories
+    const categories = Object.entries(categoryStats)
+      .filter(([, s]) => s.total >= 3)  // Minimum 3 predictions
+      .sort((a, b) => b[1].accuracy - a[1].accuracy);
+
+    if (categories.length > 0) {
+      const best = categories[0];
+      const worst = categories[categories.length - 1];
+
+      const catInfo = {
+        crypto: '🪙 Crypto',
+        politics: '🏛️ Politics',
+        sports: '⚽ Sports',
+        tech: '💻 Tech',
+        world: '🌍 World',
+        economics: '💰 Economics',
+        entertainment: '🎬 Entertainment',
+      };
+
+      msg += `*Best category:* ${escapeMarkdown(catInfo[best[0]] || best[0])} \\(${best[1].accuracy.toFixed(0)}%\\)\n`;
+      if (worst[0] !== best[0]) {
+        msg += `*Worst category:* ${escapeMarkdown(catInfo[worst[0]] || worst[0])} \\(${worst[1].accuracy.toFixed(0)}%\\)\n`;
+      }
+      msg += `\n`;
+    }
+  }
+
+  // Leaderboard rank
+  if (leaderboardRank) {
+    if (leaderboardRank.qualified) {
+      msg += `*Rank:* \\#${leaderboardRank.rank} out of ${leaderboardRank.totalParticipants} predictors\n\n`;
+    } else {
+      const needed = 10 - thisMonth.resolved;
+      if (needed > 0) {
+        msg += `_Need ${needed} more resolved predictions to qualify for leaderboard_\n\n`;
+      }
+    }
+  }
+
+  msg += `→ /leaderboard to see the top 10`;
+
+  return msg;
+}
+
+/**
+ * Format the leaderboard
+ */
+export function formatLeaderboard(entries, userRank, totalPredictors) {
+  const now = new Date();
+  const monthName = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+  let msg = `🏆 *TOP PREDICTORS — ${escapeMarkdown(monthName)}*\n\n`;
+
+  if (!entries || entries.length === 0) {
+    msg += `_No qualified predictors yet this month\\._\n\n`;
+    msg += `*How to qualify:*\n`;
+    msg += `• Make predictions with /predict\n`;
+    msg += `• Need 10\\+ resolved predictions\n`;
+    msg += `• Accuracy determines your rank\n\n`;
+    msg += `_Start predicting: /predict bitcoin\\-100k yes_`;
+    return msg;
+  }
+
+  const medals = ['🥇', '🥈', '🥉'];
+
+  entries.slice(0, 10).forEach((entry, i) => {
+    const medal = i < 3 ? ` ${medals[i]}` : '';
+    const rank = `${i + 1}.`.padStart(3, ' ');
+    const username = entry.username?.startsWith('@') 
+      ? entry.username 
+      : `@${entry.username}`;
+    const accuracy = `${entry.accuracy.toFixed(0)}%`;
+    const record = `(${entry.correct}/${entry.total})`;
+
+    msg += `*${escapeMarkdown(rank)}* ${escapeMarkdown(username)} — ${accuracy} ${escapeMarkdown(record)}${medal}\n`;
+  });
+
+  msg += `\n`;
+
+  // Show user's rank if they're on the board but not in top 10
+  if (userRank && userRank.qualified && userRank.rank > 10) {
+    msg += ` \\.\\.\\.\n`;
+    msg += `*${userRank.rank}\\.* @you — ${userRank.accuracy.toFixed(0)}% \\(${userRank.correct}/${userRank.total}\\)\n\n`;
+  }
+
+  msg += `_${totalPredictors} predictors this month_\n`;
+  msg += `_Min\\. 10 predictions to qualify_\n\n`;
+  msg += `Make more predictions to climb\\! → /predict`;
+
+  return msg;
+}
+
+/**
+ * Format leaderboard upsell for free users
+ */
+export function formatLeaderboardUpsell(stats) {
+  let msg = `🏆 *Prediction Leaderboard — Premium Only*\n\n`;
+  
+  msg += `See how you stack up against other predictors\\!\n\n`;
+  
+  if (stats && stats.allTime.total > 0) {
+    msg += `*Your stats:*\n`;
+    msg += `• Predictions: ${stats.allTime.total}\n`;
+    msg += `• Accuracy: ${stats.allTime.accuracy.toFixed(0)}%\n`;
+    if (stats.streak > 0) {
+      msg += `• Current streak: 🔥 ${stats.streak}\n`;
+    }
+    msg += `\n`;
+  }
+
+  msg += `*Premium includes:*\n`;
+  msg += `• Full leaderboard access\n`;
+  msg += `• Your rank among all predictors\n`;
+  msg += `• Category\\-by\\-category accuracy\n`;
+  msg += `• Monthly competition\n\n`;
+
+  msg += `_Upgrade to see the leaderboard → /upgrade_`;
+
+  return msg;
+}
+
+/**
+ * Format "already predicted" message
+ */
+export function formatAlreadyPredicted(existingPrediction) {
+  const predEmoji = existingPrediction.prediction === 'YES' ? '✅' : '❌';
+  const oddsPct = existingPrediction.odds_at_prediction 
+    ? `${(existingPrediction.odds_at_prediction * 100).toFixed(0)}%` 
+    : '—';
+
+  let status = 'Pending';
+  if (existingPrediction.resolved) {
+    status = existingPrediction.correct ? '🟢 Correct!' : '🔴 Wrong';
+  }
+
+  return `⚠️ *You already predicted on this market\\!*
+
+${predEmoji} Your prediction: *${existingPrediction.prediction}*
+📊 Odds at prediction: ${escapeMarkdown(oddsPct)}
+📍 Status: ${escapeMarkdown(status)}
+
+_You can only predict once per market\\._`;
 }
 
 export { parseOutcomes };

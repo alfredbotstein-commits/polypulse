@@ -1,46 +1,18 @@
-# PolyPulse P5: Category Subscriptions — Schema Setup
+# P5: Category Subscriptions - Setup Guide
 
-## What Was Built
+## What This Adds
 
-Priority 5: Category Subscriptions — allows users to subscribe to entire categories (crypto, politics, sports, etc.) instead of individual markets.
+Users can subscribe to entire categories instead of individual markets:
+- **Commands**: `/categories`, `/subscribe`, `/unsubscribe`, `/mysubs`
+- **Categories**: crypto, politics, sports, tech, economics, entertainment, world
+- **Limits**: Free users get 1 category, Premium users get unlimited
 
-### New Commands
-- `/categories` — List available categories with descriptions
-- `/subscribe crypto` — Subscribe to a category
-- `/subscribe politics,sports` — Subscribe to multiple categories
-- `/unsubscribe crypto` — Unsubscribe from a category
-- `/mysubs` — View active category subscriptions
+## Database Setup
 
-### Categories Available
-- 🪙 **Crypto** — Bitcoin, Ethereum, DeFi, regulations
-- 🏛️ **Politics** — US elections, policy, international
-- ⚽ **Sports** — UFC, NFL, NBA, soccer, Olympics
-- 💻 **Tech** — Product launches, IPOs, AI milestones
-- 🌍 **World Events** — Geopolitics, climate, science
-- 💰 **Economics** — Fed, inflation, GDP, employment
-- 🎬 **Entertainment** — Awards, box office, celebrity
-
-### Subscriber Benefits
-- Daily category digest in morning briefing
-- Alerts when any market in category moves 10%+
-- New market notifications in category
-
-### Limits
-- **Free users:** 1 category subscription
-- **Premium users:** Unlimited categories
-
----
-
-## Apply Schema
-
-Run this in your Supabase SQL Editor:
+Run this SQL in your Supabase SQL Editor:
 
 ```sql
--- ============================================
--- POLYPULSE V2 P5: CATEGORY SUBSCRIPTIONS
--- ============================================
-
--- Category subscriptions (users subscribe to entire categories)
+-- Category subscriptions table
 CREATE TABLE IF NOT EXISTS pp_category_subs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id BIGINT NOT NULL,
@@ -49,7 +21,7 @@ CREATE TABLE IF NOT EXISTS pp_category_subs (
     UNIQUE(user_id, category)
 );
 
--- Market categories (tag markets with categories for filtering)
+-- Market categories lookup (for auto-categorization)
 CREATE TABLE IF NOT EXISTS pp_market_categories (
     market_id TEXT NOT NULL,
     category TEXT NOT NULL,
@@ -58,48 +30,58 @@ CREATE TABLE IF NOT EXISTS pp_market_categories (
     PRIMARY KEY (market_id, category)
 );
 
--- Indexes for fast lookups
+-- Indexes
 CREATE INDEX IF NOT EXISTS idx_pp_category_subs_user ON pp_category_subs(user_id);
 CREATE INDEX IF NOT EXISTS idx_pp_category_subs_category ON pp_category_subs(category);
 CREATE INDEX IF NOT EXISTS idx_pp_market_categories_category ON pp_market_categories(category);
 CREATE INDEX IF NOT EXISTS idx_pp_market_categories_market ON pp_market_categories(market_id);
 
--- Enable RLS
+-- RLS
 ALTER TABLE pp_category_subs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pp_market_categories ENABLE ROW LEVEL SECURITY;
 ```
 
----
+Or run the migration file:
+```bash
+psql $DATABASE_URL -f schema-p5-categories.sql
+```
 
 ## Verify Installation
 
-After applying the schema, run these queries to confirm:
-
 ```sql
 -- Check tables exist
-SELECT table_name FROM information_schema.tables 
-WHERE table_name IN ('pp_category_subs', 'pp_market_categories');
+SELECT * FROM information_schema.tables WHERE table_name LIKE 'pp_category%';
 
 -- Check columns
-SELECT column_name, data_type 
-FROM information_schema.columns 
+SELECT column_name, data_type FROM information_schema.columns 
 WHERE table_name = 'pp_category_subs';
 ```
 
----
+## Bot Commands
 
-## Test Commands
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/categories` | List all categories (shows ✅ for subscribed) | `/categories` |
+| `/subscribe` | Subscribe to category(ies) | `/subscribe crypto` or `/subscribe politics,sports` |
+| `/unsubscribe` | Unsubscribe from a category | `/unsubscribe crypto` |
+| `/mysubs` | View your subscriptions | `/mysubs` |
 
-1. `/categories` — Should show list of 7 categories
-2. `/subscribe crypto` — Should subscribe (or show limit for free)
-3. `/mysubs` — Should show your subscriptions
-4. `/unsubscribe crypto` — Should unsubscribe
+## How It Works
 
----
+1. **Auto-categorization**: Markets are automatically categorized based on keywords in their titles
+2. **Subscription limits**: Free users can subscribe to 1 category, Premium users get unlimited
+3. **Category alerts**: (Future) Users will receive alerts for new markets and big moves in their subscribed categories
 
-## Files Modified
+## Testing
 
-- `src/db.js` — Added category subscription functions
-- `src/format.js` — Added category formatting functions
-- `src/index.js` — Added category commands
-- `schema-p5-categories.sql` — Database schema
+```bash
+# Restart the bot
+npm start
+
+# Then test in Telegram:
+# /categories - should list all 7 categories
+# /subscribe crypto - should work for free users
+# /subscribe sports - should fail for free users (at limit)
+# /mysubs - should show crypto
+# /unsubscribe crypto - should work
+```

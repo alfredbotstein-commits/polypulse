@@ -1235,7 +1235,7 @@ export async function cleanupOldAlertHistory() {
 /**
  * Valid categories for subscription
  */
-export const VALID_CATEGORIES = {
+export const CATEGORY_INFO = {
   crypto: { name: 'Crypto', emoji: '🪙', keywords: ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'defi', 'nft', 'solana', 'sol', 'xrp', 'dogecoin', 'doge', 'altcoin', 'blockchain', 'token', 'coin'] },
   politics: { name: 'Politics', emoji: '🏛️', keywords: ['election', 'trump', 'biden', 'president', 'senate', 'congress', 'vote', 'democrat', 'republican', 'governor', 'mayor', 'political', 'policy', 'campaign'] },
   sports: { name: 'Sports', emoji: '⚽', keywords: ['ufc', 'nfl', 'nba', 'mlb', 'soccer', 'football', 'basketball', 'baseball', 'tennis', 'golf', 'olympics', 'championship', 'super bowl', 'world cup', 'match', 'game', 'fight'] },
@@ -1244,6 +1244,9 @@ export const VALID_CATEGORIES = {
   economics: { name: 'Economics', emoji: '💰', keywords: ['fed', 'federal reserve', 'interest rate', 'inflation', 'gdp', 'unemployment', 'recession', 'economy', 'stock', 'market', 'bond', 'treasury', 'central bank'] },
   entertainment: { name: 'Entertainment', emoji: '🎬', keywords: ['oscar', 'grammy', 'emmy', 'movie', 'film', 'music', 'celebrity', 'award', 'box office', 'album', 'concert', 'netflix', 'disney', 'streaming'] },
 };
+
+// Array of valid category keys for easy validation
+export const VALID_CATEGORIES = Object.keys(CATEGORY_INFO);
 
 /**
  * Get user's category subscriptions
@@ -1341,7 +1344,7 @@ export function categorizeMarket(marketTitle) {
   const title = marketTitle.toLowerCase();
   const matchedCategories = [];
 
-  for (const [catKey, catInfo] of Object.entries(VALID_CATEGORIES)) {
+  for (const [catKey, catInfo] of Object.entries(CATEGORY_INFO)) {
     for (const keyword of catInfo.keywords) {
       if (title.includes(keyword)) {
         matchedCategories.push(catKey);
@@ -1427,6 +1430,376 @@ export async function getUsersForMarketCategoryAlert(marketId, marketTitle) {
   }
 
   return Array.from(allSubscribers.values());
+}
+
+// ============ PREDICTIONS / LEADERBOARD ============
+
+/**
+ * Create a new prediction
+ */
+export async function createPrediction(telegramId, marketId, marketTitle, prediction, oddsAtPrediction) {
+  const { data, error } = await supabase
+    .from('pp_predictions')
+    .insert({
+      user_id: telegramId,
+      market_id: marketId,
+      market_title: marketTitle,
+      prediction: prediction.toUpperCase(),
+      odds_at_prediction: oddsAtPrediction,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Update user's total predictions count
+  await supabase.rpc('increment_user_predictions', { user_telegram_id: telegramId }).catch(() => {
+    // Fallback if RPC doesn't exist
+    supabase
+      .from('pp_users')
+      .update({ total_predictions: supabase.raw('COALESCE(total_predictions, 0) + 1') })
+      .eq('telegram_id', telegramId);
+  });
+
+  return data;
+}
+
+/**
+ * Check if user already predicted on this market
+ */
+export async function hasUserPredicted(telegramId, marketId) {
+  const { count } = await supabase
+    .from('pp_predictions')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', telegramId)
+    .eq('market_id', marketId);
+
+  return (count || 0) > 0;
+}
+
+/**
+ * Get user's prediction for a specific market
+ */
+export async function getUserPrediction(telegramId, marketId) {
+  const { data } = await supabase
+    .from('pp_predictions')
+    .select('*')
+    .eq('user_id', telegramId)
+    .eq('market_id', marketId)
+    .single();
+
+  return data || null;
+}
+
+/**
+ * Get user's prediction history
+ */
+export async function getUserPredictions(telegramId, limit = 20) {
+  const { data } = await supabase
+    .from('pp_predictions')
+    .select('*')
+    .eq('user_id', telegramId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  return data || [];
+}
+
+/**
+ * Get user's prediction stats
+ */
+export async function getUserPredictionStats(telegramId) {
+  // All-time stats
+  const { data: allTime } = await supabase
+    .from('pp_predictions')
+    .select('resolved, correct')
+    .eq('user_id', telegramId);
+
+  const allTimeResolved = (allTime || []).filter(p => p.resolved);
+  const allTimeCorrect = allTimeResolved.filter(p => p.correct);
+
+  // This month stats
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const { data: thisMonth } = await supabase
+    .from('pp_predictions')
+    .select('resolved, correct')
+    .eq('user_id', telegramId)
+    .gte('created_at', startOfMonth.toISOString());
+
+  const monthResolved = (thisMonth || []).filter(p => p.resolved);
+  const monthCorrect = monthResolved.filter(p => p.correct);
+
+  // Calculate streak (consecutive correct predictions)
+  const { data: recentResolved } = await supabase
+    .from('pp_predictions')
+    .select('correct, resolved_at')
+    .eq('user_id', telegramId)
+    .eq('resolved', true)
+    .order('resolved_at', { ascending: false })
+    .limit(50);
+
+  let streak = 0;
+  for (const pred of (recentResolved || [])) {
+    if (pred.correct) {
+      streak++;
+    } else {
+      break;
+    }
+  }
+
+  // Get category breakdown
+  const categoryStats = await getUserCategoryStats(telegramId);
+
+  return {
+    allTime: {
+      total: (allTime || []).length,
+      resolved: allTimeResolved.length,
+      correct: allTimeCorrect.length,
+      accuracy: allTimeResolved.length > 0 
+        ? (allTimeCorrect.length / allTimeResolved.length * 100) 
+        : 0,
+    },
+    thisMonth: {
+      total: (thisMonth || []).length,
+      resolved: monthResolved.length,
+      correct: monthCorrect.length,
+      accuracy: monthResolved.length > 0 
+        ? (monthCorrect.length / monthResolved.length * 100) 
+        : 0,
+    },
+    streak,
+    categoryStats,
+  };
+}
+
+/**
+ * Get user's accuracy by category
+ */
+async function getUserCategoryStats(telegramId) {
+  const { data: predictions } = await supabase
+    .from('pp_predictions')
+    .select('market_title, resolved, correct')
+    .eq('user_id', telegramId)
+    .eq('resolved', true);
+
+  if (!predictions || predictions.length === 0) return {};
+
+  const categoryAccuracy = {};
+
+  for (const pred of predictions) {
+    const categories = categorizeMarket(pred.market_title);
+    for (const cat of categories) {
+      if (!categoryAccuracy[cat]) {
+        categoryAccuracy[cat] = { correct: 0, total: 0 };
+      }
+      categoryAccuracy[cat].total++;
+      if (pred.correct) categoryAccuracy[cat].correct++;
+    }
+  }
+
+  // Calculate percentages
+  for (const cat of Object.keys(categoryAccuracy)) {
+    const stats = categoryAccuracy[cat];
+    stats.accuracy = stats.total > 0 ? (stats.correct / stats.total * 100) : 0;
+  }
+
+  return categoryAccuracy;
+}
+
+/**
+ * Get leaderboard for current month
+ * Minimum 10 resolved predictions to qualify
+ */
+export async function getLeaderboard(limit = 10) {
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  // Get all resolved predictions this month
+  const { data: predictions } = await supabase
+    .from('pp_predictions')
+    .select('user_id, correct')
+    .eq('resolved', true)
+    .gte('created_at', startOfMonth.toISOString());
+
+  if (!predictions || predictions.length === 0) return [];
+
+  // Aggregate by user
+  const userStats = {};
+  for (const pred of predictions) {
+    if (!userStats[pred.user_id]) {
+      userStats[pred.user_id] = { correct: 0, total: 0 };
+    }
+    userStats[pred.user_id].total++;
+    if (pred.correct) userStats[pred.user_id].correct++;
+  }
+
+  // Filter for minimum 10 predictions and calculate accuracy
+  const qualified = Object.entries(userStats)
+    .filter(([, stats]) => stats.total >= 10)
+    .map(([userId, stats]) => ({
+      userId: parseInt(userId),
+      correct: stats.correct,
+      total: stats.total,
+      accuracy: (stats.correct / stats.total * 100),
+    }))
+    .sort((a, b) => b.accuracy - a.accuracy || b.total - a.total)
+    .slice(0, limit);
+
+  // Get usernames for qualified users
+  const userIds = qualified.map(u => u.userId);
+  if (userIds.length === 0) return [];
+
+  const { data: users } = await supabase
+    .from('pp_users')
+    .select('telegram_id, telegram_username')
+    .in('telegram_id', userIds);
+
+  const usernameMap = {};
+  for (const user of (users || [])) {
+    usernameMap[user.telegram_id] = user.telegram_username || `user_${user.telegram_id}`;
+  }
+
+  return qualified.map((entry, i) => ({
+    rank: i + 1,
+    userId: entry.userId,
+    username: usernameMap[entry.userId] || `user_${entry.userId}`,
+    correct: entry.correct,
+    total: entry.total,
+    accuracy: entry.accuracy,
+  }));
+}
+
+/**
+ * Get user's rank on leaderboard
+ */
+export async function getUserLeaderboardRank(telegramId) {
+  const leaderboard = await getLeaderboard(1000); // Get more to find user
+  const totalParticipants = leaderboard.length;
+  
+  const userEntry = leaderboard.find(e => e.userId === telegramId);
+  
+  if (!userEntry) {
+    // User not qualified yet
+    return { rank: null, totalParticipants, qualified: false };
+  }
+
+  return {
+    rank: userEntry.rank,
+    totalParticipants,
+    qualified: true,
+    accuracy: userEntry.accuracy,
+    correct: userEntry.correct,
+    total: userEntry.total,
+  };
+}
+
+/**
+ * Resolve a prediction (when market resolves)
+ */
+export async function resolvePrediction(predictionId, correct) {
+  const { data, error } = await supabase
+    .from('pp_predictions')
+    .update({
+      resolved: true,
+      correct,
+      resolved_at: new Date().toISOString(),
+    })
+    .eq('id', predictionId)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  // Update user stats
+  if (data) {
+    await updateUserPredictionStats(data.user_id, correct);
+  }
+
+  return data;
+}
+
+/**
+ * Resolve all predictions for a market
+ */
+export async function resolveMarketPredictions(marketId, winningOutcome) {
+  // winningOutcome should be 'YES' or 'NO'
+  const { data: predictions } = await supabase
+    .from('pp_predictions')
+    .select('*')
+    .eq('market_id', marketId)
+    .eq('resolved', false);
+
+  if (!predictions || predictions.length === 0) return [];
+
+  const resolved = [];
+  for (const pred of predictions) {
+    const correct = pred.prediction === winningOutcome.toUpperCase();
+    const result = await resolvePrediction(pred.id, correct);
+    resolved.push(result);
+  }
+
+  return resolved;
+}
+
+/**
+ * Update user's prediction stats (streak, etc.)
+ */
+async function updateUserPredictionStats(telegramId, wasCorrect) {
+  const { data: user } = await supabase
+    .from('pp_users')
+    .select('prediction_streak, best_streak, correct_predictions')
+    .eq('telegram_id', telegramId)
+    .single();
+
+  if (!user) return;
+
+  let newStreak = wasCorrect ? (user.prediction_streak || 0) + 1 : 0;
+  let bestStreak = Math.max(user.best_streak || 0, newStreak);
+  let correctCount = (user.correct_predictions || 0) + (wasCorrect ? 1 : 0);
+
+  await supabase
+    .from('pp_users')
+    .update({
+      prediction_streak: newStreak,
+      best_streak: bestStreak,
+      correct_predictions: correctCount,
+    })
+    .eq('telegram_id', telegramId);
+}
+
+/**
+ * Get pending (unresolved) predictions for a user
+ */
+export async function getPendingPredictions(telegramId) {
+  const { data } = await supabase
+    .from('pp_predictions')
+    .select('*')
+    .eq('user_id', telegramId)
+    .eq('resolved', false)
+    .order('created_at', { ascending: false });
+
+  return data || [];
+}
+
+/**
+ * Count total predictors this month
+ */
+export async function countMonthlyPredictors() {
+  const startOfMonth = new Date();
+  startOfMonth.setDate(1);
+  startOfMonth.setHours(0, 0, 0, 0);
+
+  const { data } = await supabase
+    .from('pp_predictions')
+    .select('user_id')
+    .gte('created_at', startOfMonth.toISOString());
+
+  const uniqueUsers = new Set((data || []).map(p => p.user_id));
+  return uniqueUsers.size;
 }
 
 export { supabase };
