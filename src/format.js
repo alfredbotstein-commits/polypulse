@@ -988,4 +988,189 @@ ${escapeMarkdown(catList)}
 _Available: crypto, politics, sports, tech, economics, entertainment_`;
 }
 
+// ============ CATEGORY SUBSCRIPTIONS ============
+
+/**
+ * Category info for display
+ */
+const CATEGORY_INFO = {
+  crypto: { name: 'Crypto', emoji: '🪙', desc: 'Bitcoin, Ethereum, DeFi, regulations' },
+  politics: { name: 'Politics', emoji: '🏛️', desc: 'US elections, policy, international' },
+  sports: { name: 'Sports', emoji: '⚽', desc: 'UFC, NFL, NBA, soccer, Olympics' },
+  tech: { name: 'Tech', emoji: '💻', desc: 'Product launches, IPOs, AI milestones' },
+  world: { name: 'World Events', emoji: '🌍', desc: 'Geopolitics, climate, science' },
+  economics: { name: 'Economics', emoji: '💰', desc: 'Fed, inflation, GDP, employment' },
+  entertainment: { name: 'Entertainment', emoji: '🎬', desc: 'Awards, box office, celebrity' },
+};
+
+/**
+ * Format available categories list
+ */
+export function formatCategoriesList() {
+  let msg = `📂 *Available Categories*\n\n`;
+  msg += `Subscribe to entire categories to get:\n`;
+  msg += `• Daily category digest in morning briefing\n`;
+  msg += `• Alerts when any market moves 10%\\+\n`;
+  msg += `• Notifications for new markets\n\n`;
+
+  for (const [key, info] of Object.entries(CATEGORY_INFO)) {
+    msg += `${info.emoji} *${escapeMarkdown(info.name)}*\n`;
+    msg += `   _${escapeMarkdown(info.desc)}_\n\n`;
+  }
+
+  msg += `*Commands:*\n`;
+  msg += `\`/subscribe crypto\` — Subscribe to a category\n`;
+  msg += `\`/subscribe politics,sports\` — Multiple at once\n`;
+  msg += `\`/unsubscribe crypto\` — Unsubscribe\n`;
+  msg += `\`/mysubs\` — View your subscriptions\n\n`;
+  msg += `_Free: 1 category\\. Premium: unlimited\\._`;
+
+  return msg;
+}
+
+/**
+ * Format user's category subscriptions
+ */
+export function formatMySubs(subs, isPremium) {
+  if (!subs || subs.length === 0) {
+    return `📭 *No category subscriptions*
+
+Subscribe to categories to get daily digests and alerts for all markets in that category\\.
+
+_See available: /categories_`;
+  }
+
+  const limit = isPremium ? '∞' : '1';
+  let msg = `📂 *Your Subscriptions \\(${subs.length}/${limit}\\)*\n\n`;
+
+  for (const sub of subs) {
+    const info = CATEGORY_INFO[sub.category] || { emoji: '📊', name: sub.category };
+    const since = new Date(sub.created_at).toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric' 
+    });
+    msg += `${info.emoji} *${escapeMarkdown(info.name)}*\n`;
+    msg += `   _Since ${escapeMarkdown(since)}_\n\n`;
+  }
+
+  msg += `*What you get:*\n`;
+  msg += `• Category digest in morning briefing\n`;
+  msg += `• Alerts when markets move 10%\\+\n`;
+  msg += `• New market notifications\n\n`;
+
+  msg += `_Unsubscribe: /unsubscribe crypto_`;
+
+  return msg;
+}
+
+/**
+ * Format subscription confirmation
+ */
+export function formatSubscribeConfirm(categories) {
+  if (categories.length === 1) {
+    const cat = categories[0];
+    const info = CATEGORY_INFO[cat] || { emoji: '📊', name: cat };
+    
+    return `✅ *Subscribed to ${info.emoji} ${escapeMarkdown(info.name)}\\!*
+
+You'll now receive:
+• Daily digest in morning briefing
+• Alerts when markets move 10%\\+
+• New market notifications
+
+_View all: /mysubs_`;
+  }
+
+  // Multiple categories
+  let catList = '';
+  for (const cat of categories) {
+    const info = CATEGORY_INFO[cat] || { emoji: '📊', name: cat };
+    catList += `${info.emoji} ${escapeMarkdown(info.name)}\n`;
+  }
+
+  return `✅ *Subscribed to ${categories.length} categories\\!*
+
+${catList}
+You'll now receive:
+• Daily digests in morning briefing
+• Alerts when markets move 10%\\+
+• New market notifications
+
+_View all: /mysubs_`;
+}
+
+/**
+ * Format unsubscribe confirmation
+ */
+export function formatUnsubscribeConfirm(category) {
+  const info = CATEGORY_INFO[category] || { emoji: '📊', name: category };
+  
+  return `❌ *Unsubscribed from ${info.emoji} ${escapeMarkdown(info.name)}*
+
+You'll no longer receive alerts for this category\\.
+
+_Re\\-subscribe: /subscribe ${escapeMarkdown(category)}_`;
+}
+
+/**
+ * Format category subscription upsell for free users
+ */
+export function formatCategoryUpsell() {
+  return `📂 *Category Subscriptions*
+
+Free tier: *1 category*
+Premium: *Unlimited categories*
+
+You're at your limit\\. Upgrade to subscribe to more categories, or unsubscribe from one first\\.
+
+_Upgrade → /upgrade_
+_Current subs → /mysubs_`;
+}
+
+/**
+ * Format category move alert (when a market in subscribed category moves 10%+)
+ */
+export function formatCategoryMoveAlert(market, category, change) {
+  const info = CATEGORY_INFO[category] || { emoji: '📊', name: category };
+  const changeStr = change >= 0 ? `+${(change * 100).toFixed(0)}%` : `${(change * 100).toFixed(0)}%`;
+  const emoji = change > 0 ? '🚀' : '📉';
+
+  let msg = `${emoji} *CATEGORY ALERT*\n\n`;
+  msg += `${info.emoji} *${escapeMarkdown(info.name)}*\n\n`;
+  msg += `"${escapeMarkdown(truncate(market.question, 60))}" moved *${escapeMarkdown(changeStr)}*\n\n`;
+  msg += `→ /price ${escapeMarkdown(market.slug || market.id || 'market')}`;
+
+  return msg;
+}
+
+/**
+ * Format category digest section for morning briefing
+ */
+export function formatCategoryDigest(categoryData) {
+  // categoryData: { category: string, topMovers: [], newMarkets: [] }
+  const info = CATEGORY_INFO[categoryData.category] || { emoji: '📊', name: categoryData.category };
+  
+  let msg = `\n${info.emoji} *${escapeMarkdown(info.name.toUpperCase())}*\n`;
+
+  if (categoryData.topMovers && categoryData.topMovers.length > 0) {
+    categoryData.topMovers.slice(0, 3).forEach(m => {
+      const change = ((m.currentPrice - m.previousPrice) * 100).toFixed(0);
+      const changeStr = change >= 0 ? `+${change}%` : `${change}%`;
+      const name = truncate(m.question, 35);
+      msg += `• ${escapeMarkdown(name)} — ${escapeMarkdown(changeStr)}\n`;
+    });
+  }
+
+  if (categoryData.newMarkets && categoryData.newMarkets.length > 0) {
+    msg += `_New:_\n`;
+    categoryData.newMarkets.slice(0, 2).forEach(m => {
+      const name = truncate(m.question, 35);
+      const price = ((m.price || 0.5) * 100).toFixed(0);
+      msg += `• ${escapeMarkdown(name)} — ${price}%\n`;
+    });
+  }
+
+  return msg;
+}
+
 export { parseOutcomes };

@@ -1230,4 +1230,203 @@ export async function cleanupOldAlertHistory() {
   if (error) console.error('Error cleaning up alert history:', error);
 }
 
+// ============ CATEGORY SUBSCRIPTIONS ============
+
+/**
+ * Valid categories for subscription
+ */
+export const VALID_CATEGORIES = {
+  crypto: { name: 'Crypto', emoji: '🪙', keywords: ['bitcoin', 'btc', 'ethereum', 'eth', 'crypto', 'defi', 'nft', 'solana', 'sol', 'xrp', 'dogecoin', 'doge', 'altcoin', 'blockchain', 'token', 'coin'] },
+  politics: { name: 'Politics', emoji: '🏛️', keywords: ['election', 'trump', 'biden', 'president', 'senate', 'congress', 'vote', 'democrat', 'republican', 'governor', 'mayor', 'political', 'policy', 'campaign'] },
+  sports: { name: 'Sports', emoji: '⚽', keywords: ['ufc', 'nfl', 'nba', 'mlb', 'soccer', 'football', 'basketball', 'baseball', 'tennis', 'golf', 'olympics', 'championship', 'super bowl', 'world cup', 'match', 'game', 'fight'] },
+  tech: { name: 'Tech', emoji: '💻', keywords: ['apple', 'google', 'microsoft', 'ai', 'artificial intelligence', 'openai', 'nvidia', 'tesla', 'meta', 'amazon', 'ipo', 'launch', 'product', 'software', 'hardware'] },
+  world: { name: 'World Events', emoji: '🌍', keywords: ['war', 'peace', 'climate', 'treaty', 'united nations', 'nato', 'china', 'russia', 'ukraine', 'israel', 'middle east', 'europe', 'asia', 'africa', 'geopolitical'] },
+  economics: { name: 'Economics', emoji: '💰', keywords: ['fed', 'federal reserve', 'interest rate', 'inflation', 'gdp', 'unemployment', 'recession', 'economy', 'stock', 'market', 'bond', 'treasury', 'central bank'] },
+  entertainment: { name: 'Entertainment', emoji: '🎬', keywords: ['oscar', 'grammy', 'emmy', 'movie', 'film', 'music', 'celebrity', 'award', 'box office', 'album', 'concert', 'netflix', 'disney', 'streaming'] },
+};
+
+/**
+ * Get user's category subscriptions
+ */
+export async function getCategorySubs(telegramId) {
+  const { data } = await supabase
+    .from('pp_category_subs')
+    .select('*')
+    .eq('user_id', telegramId)
+    .order('created_at', { ascending: true });
+
+  return data || [];
+}
+
+/**
+ * Count user's category subscriptions
+ */
+export async function countCategorySubs(telegramId) {
+  const { count } = await supabase
+    .from('pp_category_subs')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', telegramId);
+
+  return count || 0;
+}
+
+/**
+ * Subscribe to a category
+ */
+export async function addCategorySub(telegramId, category) {
+  const { data, error } = await supabase
+    .from('pp_category_subs')
+    .upsert({
+      user_id: telegramId,
+      category: category.toLowerCase(),
+    }, { onConflict: 'user_id,category' })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Unsubscribe from a category
+ */
+export async function removeCategorySub(telegramId, category) {
+  const { data, error } = await supabase
+    .from('pp_category_subs')
+    .delete()
+    .eq('user_id', telegramId)
+    .eq('category', category.toLowerCase())
+    .select();
+
+  return data?.length > 0;
+}
+
+/**
+ * Check if user is subscribed to a category
+ */
+export async function isSubscribedToCategory(telegramId, category) {
+  const { count } = await supabase
+    .from('pp_category_subs')
+    .select('*', { count: 'exact', head: true })
+    .eq('user_id', telegramId)
+    .eq('category', category.toLowerCase());
+
+  return (count || 0) > 0;
+}
+
+/**
+ * Get all premium users subscribed to a specific category
+ */
+export async function getCategorySubscribers(category) {
+  const { data } = await supabase
+    .from('pp_category_subs')
+    .select('*, pp_users!inner(*)')
+    .eq('category', category.toLowerCase());
+
+  if (!data || data.length === 0) return [];
+
+  // Filter for premium users only
+  return data
+    .filter(sub => sub.pp_users.subscription_status === 'premium')
+    .map(sub => ({
+      telegramId: sub.user_id,
+      user: sub.pp_users,
+    }));
+}
+
+/**
+ * Auto-categorize a market based on its title/question
+ */
+export function categorizeMarket(marketTitle) {
+  const title = marketTitle.toLowerCase();
+  const matchedCategories = [];
+
+  for (const [catKey, catInfo] of Object.entries(VALID_CATEGORIES)) {
+    for (const keyword of catInfo.keywords) {
+      if (title.includes(keyword)) {
+        matchedCategories.push(catKey);
+        break; // Only add each category once
+      }
+    }
+  }
+
+  return matchedCategories;
+}
+
+/**
+ * Store a market's category mapping
+ */
+export async function storeMarketCategory(marketId, category, marketTitle = null) {
+  const { error } = await supabase
+    .from('pp_market_categories')
+    .upsert({
+      market_id: marketId,
+      category: category.toLowerCase(),
+      market_title: marketTitle,
+    }, { onConflict: 'market_id,category' });
+
+  if (error) console.error('Error storing market category:', error);
+}
+
+/**
+ * Get categories for a market
+ */
+export async function getMarketCategories(marketId) {
+  const { data } = await supabase
+    .from('pp_market_categories')
+    .select('category')
+    .eq('market_id', marketId);
+
+  return (data || []).map(d => d.category);
+}
+
+/**
+ * Get all markets in a category
+ */
+export async function getMarketsInCategory(category, limit = 50) {
+  const { data } = await supabase
+    .from('pp_market_categories')
+    .select('*')
+    .eq('category', category.toLowerCase())
+    .order('categorized_at', { ascending: false })
+    .limit(limit);
+
+  return data || [];
+}
+
+/**
+ * Get users who should receive category alerts for a market
+ * Checks which categories the market belongs to and returns subscribed premium users
+ */
+export async function getUsersForMarketCategoryAlert(marketId, marketTitle) {
+  // First, categorize the market
+  const categories = categorizeMarket(marketTitle);
+  
+  if (categories.length === 0) return [];
+
+  // Store the categorizations
+  for (const cat of categories) {
+    await storeMarketCategory(marketId, cat, marketTitle);
+  }
+
+  // Get all subscribers for these categories
+  const allSubscribers = new Map(); // Use map to deduplicate by telegramId
+
+  for (const cat of categories) {
+    const subscribers = await getCategorySubscribers(cat);
+    for (const sub of subscribers) {
+      if (!allSubscribers.has(sub.telegramId)) {
+        allSubscribers.set(sub.telegramId, {
+          ...sub,
+          matchedCategories: [cat],
+        });
+      } else {
+        allSubscribers.get(sub.telegramId).matchedCategories.push(cat);
+      }
+    }
+  }
+
+  return Array.from(allSubscribers.values());
+}
+
 export { supabase };

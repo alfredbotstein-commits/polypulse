@@ -44,6 +44,12 @@ import {
   setSmartAlertEnabled,
   setSmartAlertParams,
   SMART_ALERT_TYPES,
+  // P5: Category Subscriptions
+  getCategorySubs,
+  countCategorySubs,
+  addCategorySub,
+  removeCategorySub,
+  VALID_CATEGORIES,
 } from './db.js';
 import {
   searchMarketsFulltext,
@@ -78,6 +84,12 @@ import {
   formatSmartAlertSettings,
   formatSmartAlertToggled,
   formatCategoriesSet,
+  // Category subscriptions
+  formatCategoriesList,
+  formatMySubs,
+  formatSubscribeConfirm,
+  formatUnsubscribeConfirm,
+  formatCategoryUpsell,
 } from './format.js';
 
 // Initialize bot
@@ -153,12 +165,19 @@ bot.command('help', async (ctx) => {
 /smartalert momentum off — Disable momentum alerts
 /smartalert categories crypto,politics — Set new market categories
 
+*Category Subscriptions*
+/categories — List available categories
+/subscribe crypto — Subscribe to all crypto markets
+/subscribe politics,sports — Subscribe to multiple
+/unsubscribe crypto — Unsubscribe from a category
+/mysubs — View your subscriptions
+
 *Account*
 /account — Check my subscription status
 /upgrade — Get Premium \\($9\\.99/mo\\)
 
-_Free: 3 alerts, 5 watchlist, 1 position, 10 price checks/day_
-_Premium: Unlimited \\+ Briefing \\+ Whales \\+ Smart Alerts_`;
+_Free: 3 alerts, 5 watchlist, 1 position, 1 category_
+_Premium: Unlimited everything \\+ Briefing \\+ Whales_`;
 
   await ctx.reply(msg, { parse_mode: 'MarkdownV2' });
 });
@@ -1099,8 +1118,7 @@ bot.command('pnl', async (ctx) => {
 
 // ============ SMART ALERT COMMANDS ============
 
-// Valid categories for new market alerts
-const VALID_CATEGORIES = ['crypto', 'politics', 'sports', 'tech', 'economics', 'entertainment', 'world'];
+// VALID_CATEGORIES is now an array imported directly from db.js
 
 // /smartalerts - View smart alert settings
 bot.command('smartalerts', async (ctx) => {
@@ -1222,6 +1240,164 @@ _View current settings: /smartalerts_`,
   } catch (err) {
     console.error('Smart alert toggle error:', err);
     return ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// ============ CATEGORY SUBSCRIPTION COMMANDS ============
+
+// /categories - List available categories
+// /categories - List available categories
+bot.command('categories', async (ctx) => {
+  try {
+    const userSubs = await getCategorySubscriptions(ctx.from.id);
+    await ctx.reply(formatCategoriesList(userSubs), { parse_mode: 'MarkdownV2' });
+  } catch (err) {
+    console.error('Categories error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// /subscribe <category> - Subscribe to category(ies)
+bot.command('subscribe', async (ctx) => {
+  const args = ctx.match?.trim().toLowerCase();
+
+  if (!args) {
+    return ctx.reply(
+`📂 *Subscribe to Categories*
+
+Subscribe to entire categories instead of individual markets\\.
+
+*Usage:*
+\`/subscribe crypto\` — Subscribe to crypto markets
+\`/subscribe politics,sports\` — Multiple categories
+
+*What you get:*
+• Alerts for new markets in your categories
+• Category\\-specific updates
+
+*Available:* crypto, politics, sports, tech, economics, entertainment, world
+
+_See all: /categories_`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  // Parse categories (comma or space separated)
+  const requestedCats = args.split(/[,\s]+/).filter(c => c.length > 0);
+  
+  // Validate categories
+  const validCats = requestedCats.filter(c => VALID_CATEGORIES.includes(c.toLowerCase()));
+  
+  if (validCats.length === 0) {
+    return ctx.reply(
+      `❌ No valid categories\\. Available: ${escapeMarkdown(VALID_CATEGORIES.join(', '))}`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  try {
+    // Get current subscriptions
+    const currentSubs = await getCategorySubscriptions(ctx.from.id);
+    const currentCatNames = currentSubs.map(s => s.category);
+    
+    // Filter out already subscribed
+    const newCats = validCats.filter(c => !currentCatNames.includes(c.toLowerCase()));
+    const alreadySubscribed = validCats.filter(c => currentCatNames.includes(c.toLowerCase()));
+
+    // Check limits for free users
+    if (!ctx.isPremium && newCats.length > 0) {
+      const currentCount = currentSubs.length;
+      if (currentCount >= 1) {
+        return ctx.reply(formatSubscriptionLimitReached(), { parse_mode: 'MarkdownV2' });
+      }
+      // Free users can only add 1 total
+      if (newCats.length > 1) {
+        newCats.splice(1); // Keep only first one
+      }
+    }
+
+    // Subscribe to new categories
+    const added = [];
+    for (const cat of newCats) {
+      try {
+        await subscribeToCategory(ctx.from.id, cat);
+        added.push(cat);
+        
+        // Free users can only have 1 total
+        if (!ctx.isPremium) {
+          const currentCount = await countCategorySubscriptions(ctx.from.id);
+          if (currentCount >= 1) break;
+        }
+      } catch (err) {
+        console.error(`Failed to subscribe to ${cat}:`, err.message);
+      }
+    }
+
+    if (added.length === 0 && alreadySubscribed.length > 0) {
+      return ctx.reply(
+        `ℹ️ You're already subscribed to: ${escapeMarkdown(alreadySubscribed.join(', '))}`,
+        { parse_mode: 'MarkdownV2' }
+      );
+    }
+
+    await ctx.reply(formatSubscribeConfirmation(added, alreadySubscribed), { parse_mode: 'MarkdownV2' });
+  } catch (err) {
+    console.error('Subscribe error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// /unsubscribe <category> - Unsubscribe from a category
+bot.command('unsubscribe', async (ctx) => {
+  const args = ctx.match?.trim().toLowerCase();
+
+  if (!args) {
+    return ctx.reply(
+`📂 *Unsubscribe from Categories*
+
+*Usage:*
+\`/unsubscribe crypto\` — Unsubscribe from crypto
+
+_Check your subscriptions: /mysubs_`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  // Find matching category
+  const category = args.trim();
+  
+  if (!VALID_CATEGORIES.includes(category)) {
+    return ctx.reply(
+      `❌ Unknown category: "${escapeMarkdown(category)}"\\. Check /categories for valid options\\.`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  try {
+    const removed = await unsubscribeFromCategory(ctx.from.id, category);
+    
+    if (!removed) {
+      return ctx.reply(
+        `❌ You're not subscribed to ${escapeMarkdown(category)}\\. Check /mysubs`,
+        { parse_mode: 'MarkdownV2' }
+      );
+    }
+
+    await ctx.reply(formatUnsubscribeConfirmation(category), { parse_mode: 'MarkdownV2' });
+  } catch (err) {
+    console.error('Unsubscribe error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// /mysubs - View active category subscriptions
+bot.command('mysubs', async (ctx) => {
+  try {
+    const subs = await getCategorySubscriptions(ctx.from.id);
+    await ctx.reply(formatMySubscriptions(subs, ctx.isPremium), { parse_mode: 'MarkdownV2' });
+  } catch (err) {
+    console.error('Mysubs error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
   }
 });
 
