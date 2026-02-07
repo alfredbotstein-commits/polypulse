@@ -196,7 +196,13 @@ bot.command('help', async (ctx) => {
 
 *Account*
 /account — Check my subscription status
+/status — Same as /account
 /upgrade — Get Premium \\($9\\.99/mo\\)
+
+*Quick Shortcuts*
+/market — Trending markets \\(same as /trending\\)
+/top — Top markets or leaderboard
+/cancel — How to cancel an alert
 
 _Free: 3 alerts, 5 watchlist, 1 position, 1 category_
 _Premium: Unlimited everything \\+ Briefing \\+ Whales_`;
