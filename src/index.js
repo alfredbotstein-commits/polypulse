@@ -135,21 +135,27 @@ bot.use(async (ctx, next) => {
 
 // /start - Clean welcome with action buttons
 bot.command('start', async (ctx) => {
-  const keyboard = new InlineKeyboard()
-    .text('🔥 Trending Markets', 'action:trending')
-    .text('🔍 Browse Categories', 'action:categories')
-    .row()
-    .text('💰 My Portfolio', 'action:portfolio')
-    .text('⭐ Go Premium', 'action:upgrade');
-  
-  const msg = `📊 *PolyPulse* — Real\\-time Polymarket intelligence
+  try {
+    const keyboard = new InlineKeyboard()
+      .text('🔥 Trending Markets', 'action:trending')
+      .text('🔍 Browse Categories', 'action:categories')
+      .row()
+      .text('💰 My Portfolio', 'action:portfolio')
+      .text('⭐ Go Premium', 'action:upgrade');
+    
+    const msg = `📊 *PolyPulse* — Real\\-time Polymarket intelligence
 
 Track odds, set alerts, and never miss a market move\\.`;
 
-  await ctx.reply(msg, { 
-    parse_mode: 'MarkdownV2',
-    reply_markup: keyboard,
-  });
+    await ctx.reply(msg, { 
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  } catch (err) {
+    console.error('Start command error:', err);
+    // Fallback to plain text if MarkdownV2 fails
+    await ctx.reply('📊 Welcome to PolyPulse!\n\nUse /help to see commands, or /trending to get started.');
+  }
 });
 
 // /help - Commands list
@@ -2834,11 +2840,17 @@ _Full command list: /help_`, {
 // ============ SMART TEXT HANDLING ============
 
 // Handle bare text (non-commands)
+// IMPORTANT: This MUST be registered AFTER all bot.command() handlers
 bot.on('message:text', async (ctx) => {
   const text = ctx.message.text?.trim();
   
-  // Skip if it starts with / (it's a command)
+  // Skip if empty or is a command (starts with /)
   if (!text || text.startsWith('/')) return;
+  
+  // Double-check: skip if this looks like a bot command entity
+  const entities = ctx.message.entities || [];
+  const hasCommandEntity = entities.some(e => e.type === 'bot_command' && e.offset === 0);
+  if (hasCommandEntity) return;
   
   const lowerText = text.toLowerCase();
   
