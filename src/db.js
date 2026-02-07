@@ -12,6 +12,33 @@ const supabase = createClient(
 
 // ============ USER MANAGEMENT ============
 
+// Cache for telegram_id -> UUID mapping (cleared on each request, filled as needed)
+const userIdCache = new Map();
+
+/**
+ * Get user UUID from telegram ID (for foreign key references)
+ * Most tables reference pp_users.id (UUID), not telegram_id (BIGINT)
+ */
+export async function getUserUUID(telegramId) {
+  // Check cache first
+  if (userIdCache.has(telegramId)) {
+    return userIdCache.get(telegramId);
+  }
+  
+  const { data } = await supabase
+    .from('pp_users')
+    .select('id')
+    .eq('telegram_id', telegramId)
+    .single();
+  
+  if (data?.id) {
+    userIdCache.set(telegramId, data.id);
+    return data.id;
+  }
+  
+  throw new Error('User not found');
+}
+
 /**
  * Get or create user by Telegram ID
  */
@@ -396,7 +423,7 @@ export async function upsertBriefingPrefs(telegramId, prefs) {
   const { data, error } = await supabase
     .from('pp_briefing_prefs')
     .upsert({
-      user_id: telegramId,
+      user_id: telegramId,  // BIGINT - uses telegram_id directly
       ...prefs,
     })
     .select()
@@ -605,7 +632,7 @@ export async function upsertWhalePrefs(telegramId, prefs) {
   const { data, error } = await supabase
     .from('pp_whale_prefs')
     .upsert({
-      user_id: telegramId,
+      user_id: telegramId,  // BIGINT - uses telegram_id directly
       ...prefs,
     })
     .select()
@@ -769,12 +796,12 @@ export async function getMarketWhaleStats(marketId) {
 /**
  * Get user's open positions
  */
-export async function getPositions(telegramId, status = 'open') {
+export async function getPositions(telegramId) {
+  const userId = await getUserUUID(telegramId);
   const { data } = await supabase
     .from('pp_positions')
     .select('*')
-    .eq('user_id', telegramId)
-    .eq('status', status)
+    .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
   return data || [];
@@ -784,10 +811,11 @@ export async function getPositions(telegramId, status = 'open') {
  * Get all positions (open + closed) for a user
  */
 export async function getAllPositions(telegramId) {
+  const userId = await getUserUUID(telegramId);
   const { data } = await supabase
     .from('pp_positions')
     .select('*')
-    .eq('user_id', telegramId)
+    .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
   return data || [];
@@ -810,12 +838,12 @@ export async function getPositionById(positionId) {
  * Find position by market ID for a user
  */
 export async function findPositionByMarket(telegramId, marketId) {
+  const userId = await getUserUUID(telegramId);
   const { data } = await supabase
     .from('pp_positions')
     .select('*')
-    .eq('user_id', telegramId)
+    .eq('user_id', userId)
     .ilike('market_id', `%${marketId}%`)
-    .eq('status', 'open')
     .limit(1);
 
   return data?.[0] || null;
@@ -828,13 +856,12 @@ export async function createPosition(telegramId, marketId, marketTitle, side, sh
   const { data, error } = await supabase
     .from('pp_positions')
     .insert({
-      user_id: telegramId,
+      user_id: await getUserUUID(telegramId),  // UUID - references pp_users.id
       market_id: marketId,
-      market_title: marketTitle,
-      side: side.toUpperCase(),
+      market_name: marketTitle,  // Note: DB column is market_name, not market_title
+      side: side.toLowerCase(),  // DB expects lowercase
       shares,
       entry_price: entryPrice,
-      status: 'open',
     })
     .select()
     .single();
@@ -897,20 +924,14 @@ export async function reducePosition(positionId, sellShares, price, telegramId) 
   await logTrade(telegramId, positionId, 'sell', selling, price);
 
   if (remainingShares <= 0) {
-    // Close the position
-    const { data, error } = await supabase
+    // Close position by deleting it (schema has no status column)
+    const { error } = await supabase
       .from('pp_positions')
-      .update({
-        shares: 0,
-        status: 'closed',
-        closed_at: new Date().toISOString(),
-      })
-      .eq('id', positionId)
-      .select()
-      .single();
+      .delete()
+      .eq('id', positionId);
 
     if (error) throw error;
-    return { ...data, fullyClosed: true };
+    return { ...position, shares: 0, fullyClosed: true };
   } else {
     // Partial sell
     const { data, error } = await supabase
@@ -932,7 +953,7 @@ export async function logTrade(telegramId, positionId, action, shares, price) {
   const { data, error } = await supabase
     .from('pp_trades')
     .insert({
-      user_id: telegramId,
+      user_id: telegramId,  // BIGINT - uses telegram_id directly
       position_id: positionId,
       action,
       shares,
@@ -973,14 +994,14 @@ export async function getPositionTrades(positionId) {
 }
 
 /**
- * Count user's open positions
+ * Count user's positions (DB schema doesn't have status column)
  */
 export async function countOpenPositions(telegramId) {
+  const userId = await getUserUUID(telegramId);
   const { count } = await supabase
     .from('pp_positions')
     .select('*', { count: 'exact', head: true })
-    .eq('user_id', telegramId)
-    .eq('status', 'open');
+    .eq('user_id', userId);
 
   return count || 0;
 }
@@ -1049,7 +1070,7 @@ export async function upsertSmartAlertPref(telegramId, alertType, enabled, param
   const { data, error } = await supabase
     .from('pp_smart_alert_prefs')
     .upsert({
-      user_id: telegramId,
+      user_id: telegramId,  // BIGINT - uses telegram_id directly
       alert_type: alertType,
       enabled,
       params,
@@ -1124,7 +1145,7 @@ export async function logSmartAlert(telegramId, alertType, marketId, details = {
   const { error } = await supabase
     .from('pp_smart_alert_history')
     .insert({
-      user_id: telegramId,
+      user_id: telegramId,  // BIGINT - uses telegram_id directly
       alert_type: alertType,
       market_id: marketId,
       details,
@@ -1280,7 +1301,7 @@ export async function addCategorySub(telegramId, category) {
   const { data, error } = await supabase
     .from('pp_category_subs')
     .upsert({
-      user_id: telegramId,
+      user_id: telegramId,  // BIGINT - uses telegram_id directly
       category: category.toLowerCase(),
     }, { onConflict: 'user_id,category' })
     .select()
@@ -1441,7 +1462,7 @@ export async function createPrediction(telegramId, marketId, marketTitle, predic
   const { data, error } = await supabase
     .from('pp_predictions')
     .insert({
-      user_id: telegramId,
+      user_id: telegramId,  // BIGINT - uses telegram_id directly
       market_id: marketId,
       market_title: marketTitle,
       prediction: prediction.toUpperCase(),
@@ -1452,14 +1473,21 @@ export async function createPrediction(telegramId, marketId, marketTitle, predic
 
   if (error) throw error;
 
-  // Update user's total predictions count
-  await supabase.rpc('increment_user_predictions', { user_telegram_id: telegramId }).catch(() => {
-    // Fallback if RPC doesn't exist
-    supabase
+  // Update user's total predictions count directly (no RPC needed)
+  try {
+    const { data: user } = await supabase
       .from('pp_users')
-      .update({ total_predictions: supabase.raw('COALESCE(total_predictions, 0) + 1') })
+      .select('total_predictions')
+      .eq('telegram_id', telegramId)
+      .single();
+    
+    await supabase
+      .from('pp_users')
+      .update({ total_predictions: (user?.total_predictions || 0) + 1 })
       .eq('telegram_id', telegramId);
-  });
+  } catch (e) {
+    // Ignore increment errors - not critical
+  }
 
   return data;
 }
