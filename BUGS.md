@@ -22,9 +22,14 @@
 - /search UFC
 - /search NBA
 
-**Status:** OPEN — Assigned to Isaiah
+**Status:** ✅ RESOLVED — 2026-02-06
+
+**Fix:** Increased API limit from 200 to 500, added word-boundary matching, commit a4658ca
 
 ---
 
 ## Resolved Bugs
-(none yet)
+
+### BUG-001: /search not using real Polymarket API
+**Resolved:** 2026-02-06
+**Fix:** Updated `searchMarketsFulltext()` in polymarket.js to fetch 500 markets (API max) instead of 200, added proper word-boundary regex matching
