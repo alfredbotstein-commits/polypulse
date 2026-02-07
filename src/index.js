@@ -1762,6 +1762,9 @@ async function handleMainAction(ctx, action) {
     case 'portfolio_full':
       await showPortfolioFull(ctx);
       break;
+    case 'watchlist_full':
+      await showWatchlistFull(ctx);
+      break;
     default:
       await ctx.reply('Unknown action. Try /start');
   }
@@ -2457,6 +2460,66 @@ Tap 👀 on any market to add it to your watchlist\\. You can quickly check pric
     });
   } catch (err) {
     console.error('Watchlist callback error:', err);
+    const keyboard = new InlineKeyboard()
+      .text('🏠 Home', 'action:back_home');
+    
+    await ctx.editMessageText('❌ Could not load watchlist\\.', {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+}
+
+// Show full watchlist with current prices
+async function showWatchlistFull(ctx) {
+  try {
+    const watchlist = await getWatchlist(ctx.user.id);
+    
+    if (watchlist.length === 0) {
+      return showWatchlistWithButtons(ctx);
+    }
+
+    await ctx.editMessageText('⏳ Loading watchlist prices\\.\\.\\.', { parse_mode: 'MarkdownV2' });
+
+    const maxItems = ctx.isPremium ? '∞' : CONFIG.FREE_LIMITS.watchlist;
+    let msg = `*📋 Full Watchlist \\(${watchlist.length}/${maxItems}\\)*\n\n`;
+
+    for (const item of watchlist) {
+      const name = truncate(item.market_name, 30);
+      const addedPct = (item.added_price * 100).toFixed(0);
+      let currentPct = addedPct;
+      let changeEmoji = '➖';
+      
+      try {
+        const markets = await searchMarketsFulltext(item.market_id, 1);
+        if (markets.length > 0) {
+          const outcomes = parseOutcomes(markets[0]);
+          const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes');
+          if (yesOutcome) {
+            currentPct = (yesOutcome.price * 100).toFixed(0);
+            const diff = yesOutcome.price - item.added_price;
+            if (diff > 0.01) changeEmoji = '📈';
+            else if (diff < -0.01) changeEmoji = '📉';
+          }
+        }
+      } catch {}
+
+      msg += `${changeEmoji} *${escapeMarkdown(name)}*\n`;
+      msg += `   Added: ${addedPct}% → Now: *${currentPct}%*\n\n`;
+    }
+
+    msg += `_Remove with /unwatch <keyword>_`;
+
+    const keyboard = new InlineKeyboard()
+      .text('🔥 Add More', 'action:trending')
+      .text('🏠 Home', 'action:back_home');
+
+    await ctx.editMessageText(msg, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  } catch (err) {
+    console.error('Watchlist full error:', err);
     const keyboard = new InlineKeyboard()
       .text('🏠 Home', 'action:back_home');
     
