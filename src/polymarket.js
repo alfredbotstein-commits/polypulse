@@ -429,10 +429,10 @@ export function formatVolume(volume) {
  * Format price change with momentum indicator
  */
 export function formatPriceChange(change) {
-  if (change === null || change === undefined) return { text: '—', indicator: '⚪' };
+  if (change === null || change === undefined) return { text: '—', indicator: '➖' };
   
   const pct = Math.abs(change * 100).toFixed(1);
-  let indicator = '⚪';
+  let indicator = '➖';
   let text = `${pct}%`;
   
   if (change > 0.005) {

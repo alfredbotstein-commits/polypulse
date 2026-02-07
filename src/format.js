@@ -576,12 +576,15 @@ export function formatMorningBriefing(data) {
     msg += `🔥 *BIGGEST MOVERS \\(24h\\)*\n`;
     topMovers.slice(0, 5).forEach(mover => {
       const name = truncate(mover.question, 35);
-      const oldPct = ((mover.yesterdayPrice || 0.5) * 100).toFixed(0);
       const newPct = ((mover.currentPrice || 0.5) * 100).toFixed(0);
       const change = mover.currentPrice - (mover.yesterdayPrice || 0.5);
-      const changePct = (change * 100).toFixed(0);
-      const changeStr = change >= 0 ? `+${changePct}%` : `${changePct}%`;
-      msg += `• "${escapeMarkdown(name)}" — ${oldPct}% → ${newPct}% \\(${escapeMarkdown(changeStr)}\\)\n`;
+      const changePct = Math.abs(change * 100).toFixed(1);
+      const changeEmoji = change > 0.005 ? '📈' : change < -0.005 ? '📉' : '➖';
+      const changeSign = change > 0 ? '+' : change < 0 ? '-' : '';
+      const volume = mover.volume24hr ? formatVolume(mover.volume24hr) : null;
+      const volumeStr = volume ? ` · Vol: ${escapeMarkdown(volume)}` : '';
+      // Format: "Bitcoin" — 73% YES · 📈 +4.2%${volumeStr}
+      msg += `• "${escapeMarkdown(name)}" — *${newPct}%* YES · ${changeEmoji} ${escapeMarkdown(changeSign)}${escapeMarkdown(changePct)}%${volumeStr}\n`;
     });
     msg += `\n`;
   }
