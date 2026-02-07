@@ -1776,8 +1776,25 @@ bot.catch((err) => {
 console.log('🚀 Starting PolyPulse Premium...');
 
 bot.start({
-  onStart: (botInfo) => {
+  onStart: async (botInfo) => {
     console.log(`✅ Bot running as @${botInfo.username}`);
+    
+    // Register commands with Telegram
+    await bot.api.setMyCommands([
+      { command: 'start', description: 'Welcome message' },
+      { command: 'help', description: 'List all commands' },
+      { command: 'trending', description: 'See hottest markets' },
+      { command: 'price', description: 'Check market odds' },
+      { command: 'search', description: 'Find markets by keyword' },
+      { command: 'alert', description: 'Set a price alert' },
+      { command: 'alerts', description: 'View my alerts' },
+      { command: 'watch', description: 'Track a market' },
+      { command: 'watchlist', description: 'See watched markets' },
+      { command: 'account', description: 'Check subscription status' },
+      { command: 'upgrade', description: 'Get Premium ($9.99/mo)' },
+    ]);
+    console.log('📋 Commands registered with Telegram');
+    
     startAlertPolling();
   },
 });

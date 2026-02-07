@@ -60,7 +60,7 @@ export async function getTrendingMarkets(limit = 10) {
     params: {
       closed: false,
       active: true,
-      limit: 100, // Fetch more to sort
+      limit: 500, // Fetch max to get best trending selection
     }
   });
   
@@ -74,31 +74,61 @@ export async function getTrendingMarkets(limit = 10) {
 
 /**
  * Search markets with better filtering
+ * Uses full-text search with word boundary detection for better accuracy
  */
 export async function searchMarketsFulltext(query, limit = 5) {
-  // Fetch a larger batch and search through them
+  // Fetch maximum batch from API (500 is the limit)
   const response = await api.get('/markets', {
     params: {
       closed: false,
       active: true,
-      limit: 200,
+      limit: 500,
     }
   });
   
   const markets = response.data;
-  const queryLower = query.toLowerCase();
-  const queryWords = queryLower.split(/\s+/);
+  const queryLower = query.toLowerCase().trim();
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 0);
   
-  // Score markets by how many query words they match
+  // Score markets by relevance
   const scored = markets.map(m => {
-    const text = `${m.question} ${m.slug || ''} ${m.description || ''}`.toLowerCase();
-    const score = queryWords.reduce((acc, word) => {
-      return acc + (text.includes(word) ? 1 : 0);
-    }, 0);
+    const question = (m.question || '').toLowerCase();
+    const slug = (m.slug || '').toLowerCase();
+    const description = (m.description || '').toLowerCase();
+    const text = `${question} ${slug} ${description}`;
+    
+    let score = 0;
+    
+    // Exact phrase match in question (highest priority)
+    if (question.includes(queryLower)) {
+      score += 100;
+    }
+    
+    // Word-level matching with word boundary awareness
+    for (const word of queryWords) {
+      // Create regex for word boundary match (avoid partial matches like "nba" in "Netherlands")
+      const wordRegex = new RegExp(`\\b${word}\\b`, 'i');
+      
+      if (wordRegex.test(question)) {
+        score += 20; // Question match is most important
+      }
+      if (wordRegex.test(slug)) {
+        score += 10;
+      }
+      if (wordRegex.test(description)) {
+        score += 5;
+      }
+    }
+    
+    // Boost by volume for tie-breaking (popular markets first)
+    if (score > 0 && m.volume24hr) {
+      score += Math.min(m.volume24hr / 100000, 5); // Small boost based on volume
+    }
+    
     return { market: m, score };
   });
   
-  // Filter to only those that match at least one word, sort by score
+  // Filter to only those that match, sort by score descending
   return scored
     .filter(s => s.score > 0)
     .sort((a, b) => b.score - a.score)
