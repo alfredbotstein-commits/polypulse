@@ -2355,6 +2355,212 @@ Tap below to start:`, {
   }
 }
 
+// Show alerts with management buttons
+async function showAlertsWithButtons(ctx) {
+  try {
+    const alerts = await getUserAlerts(ctx.user.id);
+    
+    if (alerts.length === 0) {
+      const keyboard = new InlineKeyboard()
+        .text('🔥 Find Markets', 'action:trending')
+        .text('🏠 Home', 'action:back_home');
+      
+      return ctx.editMessageText(`*🔔 No Active Alerts*
+
+Set alerts to get notified when markets hit your target:
+
+1\\. Browse trending markets
+2\\. Tap 🔔 to set an alert
+3\\. Choose your threshold`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+
+    const maxAlerts = ctx.isPremium ? '∞' : CONFIG.FREE_LIMITS.alerts;
+    let msg = `*🔔 Your Alerts \\(${alerts.length}/${maxAlerts}\\)*\n\n`;
+
+    alerts.forEach((alert, i) => {
+      const dir = alert.direction === 'above' ? '≥' : '≤';
+      const pct = (alert.threshold * 100).toFixed(0);
+      const name = truncate(alert.market_name, 35);
+      
+      msg += `*${i + 1}\\.* ${escapeMarkdown(name)}\n`;
+      msg += `   YES ${dir} ${pct}%\n\n`;
+    });
+
+    msg += `_Cancel via /alerts then /cancelalert_`;
+
+    const keyboard = new InlineKeyboard()
+      .text('🔥 Add More', 'action:trending')
+      .text('🏠 Home', 'action:back_home');
+
+    await ctx.editMessageText(msg, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  } catch (err) {
+    console.error('Alerts callback error:', err);
+    const keyboard = new InlineKeyboard()
+      .text('🏠 Home', 'action:back_home');
+    
+    await ctx.editMessageText('❌ Could not load alerts\\.', {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+}
+
+// Show watchlist with buttons
+async function showWatchlistWithButtons(ctx) {
+  try {
+    const watchlist = await getWatchlist(ctx.user.id);
+    
+    if (watchlist.length === 0) {
+      const keyboard = new InlineKeyboard()
+        .text('🔥 Find Markets', 'action:trending')
+        .text('🏠 Home', 'action:back_home');
+      
+      return ctx.editMessageText(`*📋 Your Watchlist*
+
+No markets tracked yet\\.
+
+Tap 👀 on any market to add it to your watchlist\\. You can quickly check prices anytime with /watchlist\\.`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+
+    const maxItems = ctx.isPremium ? '∞' : CONFIG.FREE_LIMITS.watchlist;
+    let msg = `*📋 Watchlist \\(${watchlist.length}/${maxItems}\\)*\n\n`;
+
+    for (const item of watchlist.slice(0, 5)) {
+      const name = truncate(item.market_name, 35);
+      const addedPct = (item.added_price * 100).toFixed(0);
+      msg += `• ${escapeMarkdown(name)}\n`;
+      msg += `  _Added at ${addedPct}%_\n\n`;
+    }
+
+    if (watchlist.length > 5) {
+      msg += `_\\+${watchlist.length - 5} more \\- use /watchlist for full list_`;
+    }
+
+    const keyboard = new InlineKeyboard()
+      .text('📊 Full List', 'action:watchlist_full')
+      .text('🔥 Add More', 'action:trending')
+      .row()
+      .text('🏠 Home', 'action:back_home');
+
+    await ctx.editMessageText(msg, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  } catch (err) {
+    console.error('Watchlist callback error:', err);
+    const keyboard = new InlineKeyboard()
+      .text('🏠 Home', 'action:back_home');
+    
+    await ctx.editMessageText('❌ Could not load watchlist\\.', {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+}
+
+// Show portfolio help
+async function showPortfolioHelp(ctx) {
+  const keyboard = new InlineKeyboard()
+    .text('🔥 Find Markets', 'action:trending')
+    .text('💰 My Portfolio', 'action:portfolio')
+    .row()
+    .text('🏠 Home', 'action:back_home');
+
+  await ctx.editMessageText(`*💼 How to Log Trades*
+
+Track your Polymarket positions for P&L:
+
+*Buy Position:*
+\`/buy bitcoin 100 0\\.54\`
+_100 shares at 54¢ each_
+
+*Sell Position:*
+\`/sell bitcoin 50 0\\.73\`
+_50 shares at 73¢ each_
+
+*Examples:*
+• \`/buy trump 200 0\\.31\` — Buy 200 @ 31¢
+• \`/sell eth 150 0\\.68\` — Sell 150 @ 68¢
+
+_This tracks P&L—it doesn't place real trades\\._`, {
+    parse_mode: 'MarkdownV2',
+    reply_markup: keyboard,
+  });
+}
+
+// Show full portfolio details
+async function showPortfolioFull(ctx) {
+  try {
+    const positions = await getPositions(ctx.from.id);
+    
+    if (positions.length === 0) {
+      return showPortfolioWithButtons(ctx);
+    }
+
+    let msg = `*💼 Portfolio Details*\n\n`;
+    let totalInvested = 0;
+    let totalCurrentValue = 0;
+
+    for (const pos of positions) {
+      const name = truncate(pos.market_name, 30);
+      let currentPrice = parseFloat(pos.entry_price);
+      
+      try {
+        const markets = await searchMarketsFulltext(pos.market_id, 1);
+        if (markets.length > 0) {
+          const outcomes = parseOutcomes(markets[0]);
+          const outcome = outcomes.find(o => o.name.toUpperCase() === pos.side.toUpperCase()) || outcomes[0];
+          currentPrice = outcome?.price || currentPrice;
+        }
+      } catch {}
+
+      const pnl = calculatePositionPnL(pos, currentPrice);
+      totalInvested += pnl.costBasis;
+      totalCurrentValue += pnl.currentValue;
+      
+      const pnlEmoji = pnl.pnl >= 0 ? '📈' : '📉';
+      const pnlSign = pnl.pnl >= 0 ? '+' : '';
+      const entryPct = (parseFloat(pos.entry_price) * 100).toFixed(0);
+      const currentPct = (currentPrice * 100).toFixed(0);
+
+      msg += `${pnlEmoji} *${escapeMarkdown(name)}*\n`;
+      msg += `   ${pos.shares} shares @ ${entryPct}¢ → ${currentPct}¢\n`;
+      msg += `   P&L: *${pnlSign}$${escapeMarkdown(pnl.pnl.toFixed(2))}*\n\n`;
+    }
+
+    const totalPnl = totalCurrentValue - totalInvested;
+    const pnlSign = totalPnl >= 0 ? '+' : '';
+    msg += `*Total: ${pnlSign}$${escapeMarkdown(totalPnl.toFixed(2))}*`;
+
+    const keyboard = new InlineKeyboard()
+      .text('📖 How to Trade', 'action:portfolio_help')
+      .text('🏠 Home', 'action:back_home');
+
+    await ctx.editMessageText(msg, {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  } catch (err) {
+    console.error('Portfolio full error:', err);
+    const keyboard = new InlineKeyboard()
+      .text('🏠 Home', 'action:back_home');
+    
+    await ctx.editMessageText('❌ Could not load portfolio\\.', {
+      parse_mode: 'MarkdownV2',
+      reply_markup: keyboard,
+    });
+  }
+}
+
 // Show help menu with buttons
 async function showHelpMenu(ctx) {
   const keyboard = new InlineKeyboard()
