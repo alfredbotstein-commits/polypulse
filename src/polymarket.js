@@ -163,7 +163,7 @@ export function parseOutcomes(market) {
     
     return outcomes.map((name, i) => ({
       name,
-      price: prices[i] || '0',
+      price: parseFloat(prices[i]) || 0,
       pct: formatPrice(prices[i] || '0'),
     }));
   } catch {

@@ -1,152 +1,108 @@
-# 🔮 PolyPulse
+# PolyPulse Premium 📊
 
-Telegram bot for Polymarket prediction market analysis with price alerts.
+Real-time Polymarket intelligence, delivered instantly via Telegram.
 
 ## Features
 
-- `/price <query>` — Search and get current odds for any market
-- `/trending` — View top 5 markets by 24h volume
-- `/alert <query> <price>` — Set price alert (e.g., `/alert bitcoin 60`)
-- `/alerts` — View your active alerts
-- `/cancelalert <id>` — Cancel an alert by ID
-- Real-time data from Polymarket's Gamma API
-- Background price checking every 5 minutes
+### Free Tier
+- `/trending` — Top 5 moving markets (3x/day)
+- `/price <query>` — Market details with sparklines (10x/day)
+- `/search <query>` — Find markets (5x/day)
+- `/alert` — 1 price alert
+
+### Premium ($9.99/mo)
+- Everything unlimited
+- Watchlist & portfolio tracking
+- Whale movement alerts
+- Daily market digests
+- Priority support
 
 ## Quick Start
 
-1. Create a Telegram bot via [@BotFather](https://t.me/BotFather)
-2. Copy `.env.example` to `.env` and add your bot token:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your token
-   ```
-3. Install dependencies and run:
-   ```bash
-   npm install
-   npm start
-   ```
-
-## Development
-
+### 1. Clone & Install
 ```bash
-npm run dev  # Watch mode with auto-restart
+git clone https://github.com/your-org/polypulse.git
+cd polypulse
+npm install
+```
+
+### 2. Set Up Supabase
+1. Create project at [supabase.com](https://supabase.com)
+2. Run `schema.sql` in SQL Editor
+3. Copy URL and service key to `.env`
+
+### 3. Set Up Stripe
+1. Create product/price in [Stripe Dashboard](https://dashboard.stripe.com)
+2. Set up webhook endpoint pointing to `/webhook`
+3. Copy keys to `.env`
+
+### 4. Configure Environment
+```bash
+cp .env.example .env
+# Edit .env with your values
+```
+
+### 5. Run
+```bash
+# Development
+npm run dev
+
+# Production (run both)
+npm start          # Bot
+npm run webhook    # Stripe webhooks
+```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Welcome message |
+| `/trending` | Top moving markets |
+| `/price <query>` | Detailed market view |
+| `/search <query>` | Find markets |
+| `/alert <query> <price>` | Set price alert |
+| `/alerts` | View your alerts |
+| `/cancelalert <id>` | Remove an alert |
+| `/account` | Subscription status |
+| `/upgrade` | Get Premium |
+
+## Architecture
+
+```
+src/
+├── index.js      # Main bot (grammy)
+├── webhook.js    # Stripe webhook server
+├── db.js         # Supabase client
+├── format.js     # Message formatting
+├── config.js     # Configuration
+└── polymarket.js # API client
 ```
 
 ## Deployment
 
-### Option 1: PM2 (Recommended)
-
+### Bot (Mac Mini / VPS)
 ```bash
-# Install PM2 globally
-npm install -g pm2
-
-# Start the bot
-pm2 start src/index.js --name polypulse
-
-# Auto-restart on reboot
-pm2 startup
-pm2 save
-
-# Useful commands
-pm2 logs polypulse      # View logs
-pm2 restart polypulse   # Restart
-pm2 stop polypulse      # Stop
+pm2 start npm --name "polypulse" -- start
 ```
 
-### Option 2: systemd (Linux servers)
-
-Create `/etc/systemd/system/polypulse.service`:
-
-```ini
-[Unit]
-Description=PolyPulse Telegram Bot
-After=network.target
-
-[Service]
-Type=simple
-User=YOUR_USER
-WorkingDirectory=/path/to/polypulse
-ExecStart=/usr/bin/node src/index.js
-Restart=always
-RestartSec=10
-Environment=NODE_ENV=production
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Then:
+### Webhook (Netlify / Vercel / same server)
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable polypulse
-sudo systemctl start polypulse
-sudo journalctl -u polypulse -f  # View logs
+pm2 start npm --name "polypulse-webhook" -- run webhook
 ```
 
-### Option 3: Docker
-
-```dockerfile
-FROM node:20-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
-CMD ["node", "src/index.js"]
-```
-
-```bash
-docker build -t polypulse .
-docker run -d --name polypulse --env-file .env polypulse
-```
+For serverless, adapt `webhook.js` to your platform's handler format.
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Yes | Bot token from @BotFather |
-
-## Price Alerts
-
-Set alerts to be notified when a market's YES price crosses your threshold:
-
-```
-/alert bitcoin 60      # Alert when Bitcoin YES hits 60%
-/alert trump 40        # Alert when Trump YES drops to 40%
-/alerts                # See your active alerts
-/cancelalert 5         # Cancel alert #5
-```
-
-Direction is auto-detected based on current price:
-- If current price < target → alerts when price goes UP to target
-- If current price > target → alerts when price goes DOWN to target
-
-Alerts are stored in SQLite (`data/alerts.db`) and checked every 5 minutes.
-
-## Tech Stack
-
-- **Runtime:** Node.js 20+ (ES Modules)
-- **Framework:** Telegraf
-- **Database:** better-sqlite3
-- **API:** Polymarket Gamma API
-
-## Data Storage
-
-- Alerts are persisted in `data/alerts.db` (SQLite)
-- The `data/` directory is git-ignored
-- Maximum 10 alerts per user
-
-## Troubleshooting
-
-**Bot doesn't respond:**
-- Check that `TELEGRAM_BOT_TOKEN` is set correctly
-- Ensure no other instance is running with the same token
-
-**API errors:**
-- Polymarket API may have rate limits
-- Check network connectivity
-
-**Database errors:**
-- Ensure the process has write permissions for the `data/` directory
+| Variable | Description |
+|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | From @BotFather |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_KEY` | Service role key |
+| `STRIPE_SECRET_KEY` | Stripe API key |
+| `STRIPE_PRICE_ID` | Subscription price ID |
+| `STRIPE_WEBHOOK_SECRET` | Webhook signing secret |
+| `WEBHOOK_PORT` | Default: 3001 |
 
 ## License
 
