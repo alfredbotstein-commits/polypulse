@@ -1651,6 +1651,32 @@ _Secure payment via Stripe\\._`;
   }
 });
 
+// ============ COMMAND ALIASES ============
+
+// /market → alias for /trending
+bot.command('market', async (ctx) => {
+  return ctx.api.sendMessage(ctx.chat.id, 'Use /trending to see trending markets or /price <keyword> to check specific markets.');
+});
+
+// /top → alias for /trending
+bot.command('top', async (ctx) => {
+  return ctx.api.sendMessage(ctx.chat.id, 'Use /trending for top markets or /leaderboard for prediction rankings.');
+});
+
+// /status → alias for /account
+bot.command('status', async (ctx) => {
+  const { formatAccount } = await import('./format.js');
+  await ctx.reply(formatAccount(ctx.user, ctx.isPremium), {
+    parse_mode: 'MarkdownV2',
+    disable_web_page_preview: true,
+  });
+});
+
+// /cancel → alias for /cancelalert
+bot.command('cancel', async (ctx) => {
+  return ctx.api.sendMessage(ctx.chat.id, 'To cancel an alert, use /cancelalert <id>\\. View your alerts with /alerts first\\.', { parse_mode: 'MarkdownV2' });
+});
+
 // ============ ALERT POLLING ============
 
 async function checkAlerts() {
