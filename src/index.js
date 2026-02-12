@@ -66,6 +66,8 @@ import {
   getUserByReferralCode,
   recordReferral,
   getReferralStats,
+  // Analytics
+  logBotEvent,
 } from './db.js';
 import {
   searchMarketsFulltext,
@@ -147,6 +149,7 @@ import {
   formatLeaderboardUpsell,
   formatAlreadyPredicted,
   formatVolume,
+  getSocialProof,
 } from './format.js';
 
 // Initialize bot
@@ -176,6 +179,7 @@ bot.use(async (ctx, next) => {
 // /start - Clean welcome with action buttons — trial-first messaging
 bot.command('start', async (ctx) => {
   console.log('[DEBUG] /start command triggered by user:', ctx.from?.id);
+  logBotEvent(ctx.from.id, 'command_start', { param: ctx.match?.trim() || null });
   try {
     // Handle deep link parameters
     const startParam = ctx.match?.trim();
@@ -277,6 +281,7 @@ When you're ready, the *7\\-day free trial* is waiting — no commitment, cancel
       msg += `🔓 _Free users see limited data\\. Pro unlocks the full picture:_\n`;
       msg += `   Unlimited alerts, whale moves, briefings & more\\.\n\n`;
       msg += `🎯 *Try Pro free for 7 days* — no commitment, cancel anytime\\.\n`;
+      msg += `\n_${escapeMarkdown(getSocialProof())}_\n`;
     }
 
     // Returning user context
@@ -379,6 +384,7 @@ _Premium: Unlimited everything \\+ Briefing \\+ Whales_`;
 
 // /trending - Beautifully formatted trending markets
 bot.command('trending', async (ctx) => {
+  logBotEvent(ctx.from.id, 'command_trending');
   // Check usage for free users
   if (!ctx.isPremium) {
     const usage = await checkUsage(ctx.user, 'trending');
@@ -395,6 +401,7 @@ bot.command('trending', async (ctx) => {
           );
         }
       } catch {}
+      logBotEvent(ctx.from.id, 'rate_limit_hit', { feature: 'trending' });
       const hoursLeft = Math.ceil(24 - ((Date.now() - new Date(ctx.user.usage_reset_at)) / (1000 * 60 * 60)));
       return ctx.reply(formatRateLimit(hoursLeft, 'trending') + '\n\n🎯 Start your free trial — 7 days free, cancel anytime', { parse_mode: 'MarkdownV2' });
     }
@@ -421,6 +428,7 @@ bot.command('trending', async (ctx) => {
 
 // /price <query> - Rich market detail
 bot.command('price', async (ctx) => {
+  logBotEvent(ctx.from.id, 'command_price', { query: ctx.match?.trim() || null });
   const query = ctx.match?.trim();
   
   if (!query) {
@@ -497,6 +505,7 @@ _I'll show you the current odds and recent trends\\._`,
 
 // /search <query> - Find markets
 bot.command('search', async (ctx) => {
+  logBotEvent(ctx.from.id, 'command_search', { query: ctx.match?.trim() || null });
   const query = ctx.match?.trim();
   
   if (!query) {
@@ -2033,27 +2042,84 @@ bot.command('accuracy', async (ctx) => {
   }
 });
 
-// /leaderboard - Top predictors this month
+// /leaderboard - Top predictors this month (free: top 10, premium: top 50)
 bot.command('leaderboard', async (ctx) => {
-  // Premium only for full leaderboard
-  if (!ctx.isPremium) {
-    const stats = await getUserPredictionStats(ctx.from.id);
-    return ctx.reply(formatLeaderboardUpsell(stats), { parse_mode: 'MarkdownV2' });
-  }
-
   try {
     await ctx.replyWithChatAction('typing');
     
-    const entries = await getLeaderboard(10);
+    const limit = ctx.isPremium ? 50 : 10;
+    const entries = await getLeaderboard(limit);
     const userRank = await getUserLeaderboardRank(ctx.from.id);
     const totalPredictors = await countMonthlyPredictors();
     
-    await ctx.reply(formatLeaderboard(entries, userRank, totalPredictors), { 
+    await ctx.reply(formatLeaderboard(entries, userRank, totalPredictors, ctx.isPremium), { 
       parse_mode: 'MarkdownV2' 
     });
   } catch (err) {
     console.error('Leaderboard error:', err);
     await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// /volume <query> - Market volume data
+bot.command('volume', async (ctx) => {
+  const query = ctx.match?.trim();
+  logBotEvent(ctx.from.id, 'command_volume', { query });
+
+  if (!query) {
+    return ctx.reply(
+`*📊 Market Volume*
+
+Check volume data for any market:
+
+\`/volume bitcoin\` — Bitcoin market volume
+\`/volume trump\` — Trump market volume
+
+_Shows 24h volume, volume change, and market context\\._`,
+      { parse_mode: 'MarkdownV2' }
+    );
+  }
+
+  await ctx.replyWithChatAction('typing');
+
+  try {
+    const markets = await searchMarketsFulltext(query, 1);
+
+    if (markets.length === 0) {
+      return ctx.reply(formatError('notFound'), { parse_mode: 'MarkdownV2' });
+    }
+
+    const market = markets[0];
+    const enriched = enrichMarket(market);
+    const question = truncate(market.question, 55);
+    const vol24h = formatVolume(market.volume24hr || 0);
+    const volTotal = formatVolume(market.volumeNum || 0);
+
+    let msg = `*📊 Volume — ${escapeMarkdown(question)}*\n\n`;
+    msg += `*24h Volume:* ${escapeMarkdown(vol24h)}\n`;
+    msg += `*Total Volume:* ${escapeMarkdown(volTotal)}\n`;
+    msg += `*Current Price:* ${escapeMarkdown(enriched.yesPct)} YES\n`;
+    msg += `*24h Change:* ${enriched.momentum} ${escapeMarkdown(enriched.priceChange)}\n`;
+
+    if (ctx.isPremium) {
+      // Premium: more detail
+      const liquidity = market.liquidityNum || market.liquidity || 0;
+      msg += `*Liquidity:* ${escapeMarkdown(formatVolume(liquidity))}\n`;
+      
+      // Volume to liquidity ratio
+      if (liquidity > 0 && market.volume24hr > 0) {
+        const ratio = (market.volume24hr / liquidity).toFixed(2);
+        msg += `*Vol/Liq Ratio:* ${escapeMarkdown(ratio)}x\n`;
+      }
+      msg += `\n_Premium: Full volume analytics\\_`;
+    } else {
+      msg += `\n_Upgrade for volume history \\& liquidity data → /upgrade_`;
+    }
+
+    await ctx.reply(msg, { parse_mode: 'MarkdownV2', disable_web_page_preview: true });
+  } catch (err) {
+    console.error('Volume error:', err);
+    await ctx.reply(formatError('apiDown'), { parse_mode: 'MarkdownV2' });
   }
 });
 
@@ -2067,6 +2133,7 @@ bot.command('account', async (ctx) => {
 
 // /upgrade - Generate Stripe checkout
 bot.command('upgrade', async (ctx) => {
+  logBotEvent(ctx.from.id, 'command_upgrade');
   if (ctx.isPremium) {
     return ctx.reply('✨ You\'re already Premium\\! Thank you for your support\\.', { parse_mode: 'MarkdownV2' });
   }
@@ -2085,6 +2152,8 @@ Get the full power of PolyPulse — no commitment\\.
 • 🧠 Smart alerts & category subs
 
 _After your free trial, just $9\\.99/mo\\. Cancel anytime\\._
+
+_${escapeMarkdown(getSocialProof())}_
 
 🚧 _Payment integration coming soon\\!_`;
 
@@ -2245,6 +2314,7 @@ bot.on('callback_query:data', async (ctx) => {
   
   // Acknowledge the callback immediately
   await ctx.answerCallbackQuery();
+  logBotEvent(ctx.from.id, 'button_tap', { data });
   
   // Route based on callback data prefix
   if (data === 'noop') {
@@ -3672,6 +3742,8 @@ bot.start({
       { command: 'account', description: 'Check subscription status' },
       { command: 'upgrade', description: 'Try Pro free for 7 days' },
       { command: 'manage', description: 'Manage your subscription' },
+      { command: 'volume', description: 'Check market volume data' },
+      { command: 'leaderboard', description: 'Top predictors this month' },
       { command: 'refer', description: 'Refer a friend, get 7 days free' },
     ]);
     console.log('📋 Commands registered with Telegram');

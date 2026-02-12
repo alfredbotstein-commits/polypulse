@@ -2035,4 +2035,90 @@ export async function getReferralStats(telegramId) {
   return { code: data?.referral_code, count: data?.referral_count || 0 };
 }
 
+// ============ ANALYTICS / EVENT TRACKING ============
+
+/**
+ * Log a bot event for analytics
+ * Events: command_start, command_trending, command_price, command_search,
+ *         command_upgrade, button_tap, checkout_started, checkout_completed,
+ *         trial_started, rate_limit_hit, referral_click
+ */
+export async function logBotEvent(telegramId, eventType, metadata = {}) {
+  try {
+    await supabase
+      .from('pp_events')
+      .insert({
+        telegram_id: telegramId,
+        event_type: eventType,
+        metadata,
+        created_at: new Date().toISOString(),
+      });
+  } catch (err) {
+    // Silently fail — table may not exist yet
+    console.log(`[analytics] ${eventType} for ${telegramId}`, metadata);
+  }
+}
+
+// ============ WHALE TEASER (FREE USERS) ============
+
+/**
+ * Get free users who haven't received a whale teaser today
+ */
+export async function getFreeUsersForWhaleTeaser() {
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data } = await supabase
+    .from('pp_users')
+    .select('*')
+    .neq('subscription_status', 'premium')
+    .or(`whale_teaser_sent_at.is.null,whale_teaser_sent_at.lt.${today}T00:00:00Z`);
+
+  return data || [];
+}
+
+/**
+ * Mark whale teaser sent for a user
+ */
+export async function markWhaleTeaserSent(telegramId) {
+  await supabase
+    .from('pp_users')
+    .update({ whale_teaser_sent_at: new Date().toISOString() })
+    .eq('telegram_id', telegramId);
+}
+
+// ============ WIN-BACK MESSAGES ============
+
+/**
+ * Get users eligible for win-back messages:
+ * - last_active_at > 24h ago
+ * - haven't started a trial
+ * - joined < 7 days ago
+ * - haven't received a winback recently
+ */
+export async function getWinbackEligibleUsers() {
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data } = await supabase
+    .from('pp_users')
+    .select('*')
+    .neq('subscription_status', 'premium')
+    .is('trial_started_at', null)
+    .gt('created_at', sevenDaysAgo)
+    .lt('last_active_at', oneDayAgo)
+    .or(`winback_sent_at.is.null,winback_sent_at.lt.${oneDayAgo}`);
+
+  return data || [];
+}
+
+/**
+ * Mark win-back sent for a user
+ */
+export async function markWinbackSent(telegramId) {
+  await supabase
+    .from('pp_users')
+    .update({ winback_sent_at: new Date().toISOString() })
+    .eq('telegram_id', telegramId);
+}
+
 export { supabase };

@@ -13,9 +13,9 @@ export const CONFIG = {
   
   // Free Tier Limits (per day)
   FREE_LIMITS: {
-    trending: 3,
-    price: 10,
-    search: 5,
+    trending: 1,
+    price: 3,
+    search: 2,
     alerts: 3,
     watchlist: 5,
     positions: 1,

@@ -6,6 +6,14 @@ import { CONFIG, PREMIUM_FEATURES } from './config.js';
 const SPARKLINE = CONFIG.SPARKLINE_CHARS;
 
 /**
+ * Social proof line for upsells and welcome messages
+ * Later: make dynamic from pp_users count
+ */
+export function getSocialProof() {
+  return 'Join 500+ traders tracking markets with PolyPulse';
+}
+
+/**
  * Escape special characters for Telegram MarkdownV2
  */
 export function escapeMarkdown(text) {
@@ -317,6 +325,7 @@ export function formatPremiumUpsell(feature = 'alerts') {
   });
   
   msg += `\n_After your free trial, just $9\\.99/mo\\. Cancel anytime\\._\n`;
+  msg += `\n_${escapeMarkdown(getSocialProof())}_\n`;
   msg += `→ /upgrade to start your free trial`;
   
   return msg;
@@ -333,16 +342,27 @@ Resets in ~${remaining} hours\\.
 🎯 *Start your free trial — 7 days, cancel anytime*
 Unlock unlimited ${escapeMarkdown(feature)} \\+ whale alerts, briefings & more\\.
 
+_${escapeMarkdown(getSocialProof())}_
+
 → /upgrade`;
 }
 
 /**
  * Format error message
  */
-export function formatError(type) {
+export function formatError(type, extra = {}) {
   const messages = {
-    notFound: "🔍 Couldn't find that market\\. Try /search election or /trending to browse\\.",
-    apiDown: "⚠️ Polymarket data is temporarily unavailable\\. We're on it — try again in a few minutes\\.",
+    notFound: "🔍 Couldn't find that market\\. Try similar searches or /trending to browse popular markets\\.",
+    apiDown: extra.cachedData
+      ? `⚠️ Live data unavailable — showing cached results \\(may be stale\\)\\.\n\n${escapeMarkdown(extra.cachedData)}`
+      : "⚠️ Polymarket data is temporarily unavailable\\. We're on it — try again in a few minutes\\.",
+    rateLimit: extra.resetTime
+      ? `⏳ *Rate limit reached\\.*\n\nResets ${escapeMarkdown(extra.resetTime)}\\.\n\n🎯 Start your free trial — 7 days free, cancel anytime → /upgrade`
+      : "⏳ *Rate limit reached\\.* Try again later or start your free trial → /upgrade",
+    noPermission: extra.feature
+      ? `🔒 *${escapeMarkdown(extra.feature)}* requires Premium\\.\n\nUnlock it with a 7\\-day free trial → /upgrade`
+      : "🔒 This feature requires Premium\\. → /upgrade",
+    networkError: "🌐 Connection hiccup — check back in a moment\\.",
     generic: "❌ Something went wrong\\. Please try again in a moment\\.",
   };
   return messages[type] || messages.generic;
@@ -493,9 +513,9 @@ _Thank you for your support\\!_`;
 Status: Free tier
 
 *Today's usage:*
-• Trending: ${usage.trending || 0}/3
-• Price checks: ${usage.price || 0}/10
-• Searches: ${usage.search || 0}/5
+• Trending: ${usage.trending || 0}/1
+• Price checks: ${usage.price || 0}/3
+• Searches: ${usage.search || 0}/2
 • Alerts: 3 max
 
 🎯 *Try Pro free for 7 days* — unlimited everything\\.
@@ -1621,7 +1641,7 @@ export function formatAccuracy(stats, leaderboardRank) {
 /**
  * Format the leaderboard
  */
-export function formatLeaderboard(entries, userRank, totalPredictors) {
+export function formatLeaderboard(entries, userRank, totalPredictors, isPremium = true) {
   const now = new Date();
   const monthName = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
@@ -1639,7 +1659,8 @@ export function formatLeaderboard(entries, userRank, totalPredictors) {
 
   const medals = ['🥇', '🥈', '🥉'];
 
-  entries.slice(0, 10).forEach((entry, i) => {
+  const displayLimit = isPremium ? 50 : 10;
+  entries.slice(0, displayLimit).forEach((entry, i) => {
     const medal = i < 3 ? ` ${medals[i]}` : '';
     const rank = `${i + 1}.`.padStart(3, ' ');
     const username = entry.username?.startsWith('@') 
@@ -1653,14 +1674,19 @@ export function formatLeaderboard(entries, userRank, totalPredictors) {
 
   msg += `\n`;
 
-  // Show user's rank if they're on the board but not in top 10
-  if (userRank && userRank.qualified && userRank.rank > 10) {
+  // Show user's rank if they're on the board but not in displayed range
+  if (userRank && userRank.qualified && userRank.rank > displayLimit) {
     msg += ` \\.\\.\\.\n`;
     msg += `*${userRank.rank}\\.* @you — ${userRank.accuracy.toFixed(0)}% \\(${userRank.correct}/${userRank.total}\\)\n\n`;
   }
 
   msg += `_${totalPredictors} predictors this month_\n`;
   msg += `_Min\\. 10 predictions to qualify_\n\n`;
+
+  if (!isPremium && entries.length > 10) {
+    msg += `_Upgrade to Premium to see top 50 \\+ detailed accuracy breakdown → /upgrade_\n\n`;
+  }
+
   msg += `Make more predictions to climb\\! → /predict`;
 
   return msg;

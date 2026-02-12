@@ -9,8 +9,15 @@ import {
   markBriefingSent,
   getFreeUsersForLiteBriefing,
   markLiteBriefingSent,
+  getFreeUsersForWhaleTeaser,
+  markWhaleTeaserSent,
+  getRecentWhaleEvents,
+  getWinbackEligibleUsers,
+  markWinbackSent,
 } from './db.js';
 import { generateBriefingMessage, generateLiteBriefingMessage } from './briefing.js';
+import { getTrendingMarkets, enrichMarket } from './polymarket.js';
+import { escapeMarkdown, truncate, formatVolume } from './format.js';
 import { checkAndSendDrips } from './drip.js';
 
 // Initialize bot for sending
@@ -115,6 +122,83 @@ async function runBriefingCron() {
         } else {
           console.log('No lite briefing content available, skipping');
         }
+      }
+    }
+
+    // === WHALE TEASER FOR FREE USERS ===
+    // Send once per day at UTC hour 15 (~10am EST)
+    if (utcHour === 15) {
+      console.log('\n🐋 Sending whale teasers to free users...');
+      try {
+        const whaleEvents = await getRecentWhaleEvents(24, 1);
+        if (whaleEvents.length > 0) {
+          const whale = whaleEvents[0];
+          const amount = formatVolume(whale.amount_usd);
+          const title = truncate(whale.market_title, 40);
+          const teaserMsg = `🐋 *${escapeMarkdown(amount)} bet just placed* on "${escapeMarkdown(title)}"\n\nWant real\\-time whale alerts? /upgrade — 7 days free`;
+          
+          const freeUsers = await getFreeUsersForWhaleTeaser();
+          console.log(`Found ${freeUsers.length} free users for whale teaser`);
+          let teasersSent = 0;
+          for (const user of freeUsers) {
+            try {
+              await bot.api.sendMessage(user.telegram_id, teaserMsg, {
+                parse_mode: 'MarkdownV2',
+              });
+              await markWhaleTeaserSent(user.telegram_id);
+              teasersSent++;
+            } catch (err) {
+              console.error(`Failed whale teaser to ${user.telegram_id}:`, err.message);
+            }
+            await new Promise(r => setTimeout(r, 500));
+          }
+          console.log(`✅ Sent ${teasersSent} whale teasers`);
+        } else {
+          console.log('No whale events for teaser, skipping');
+        }
+      } catch (err) {
+        console.error('Whale teaser error:', err.message);
+      }
+    }
+
+    // === WIN-BACK MESSAGES ===
+    // Send once per day at UTC hour 18 (~1pm EST)
+    if (utcHour === 18) {
+      console.log('\n📊 Checking win-back eligible users...');
+      try {
+        const winbackUsers = await getWinbackEligibleUsers();
+        console.log(`Found ${winbackUsers.length} win-back eligible users`);
+        
+        if (winbackUsers.length > 0) {
+          // Get top trending market for the message
+          let trendingSnippet = 'top markets are moving fast';
+          try {
+            const trending = await getTrendingMarkets(1);
+            if (trending.length > 0) {
+              const m = enrichMarket(trending[0]);
+              trendingSnippet = `${truncate(m.question, 40)} is at ${m.yesPct} YES`;
+            }
+          } catch {}
+          
+          const winbackMsg = `📊 *Here's what you missed:* ${escapeMarkdown(trendingSnippet)}\n\nStart your free trial to never miss a move → /upgrade`;
+          
+          let winbackSent = 0;
+          for (const user of winbackUsers) {
+            try {
+              await bot.api.sendMessage(user.telegram_id, winbackMsg, {
+                parse_mode: 'MarkdownV2',
+              });
+              await markWinbackSent(user.telegram_id);
+              winbackSent++;
+            } catch (err) {
+              console.error(`Failed win-back to ${user.telegram_id}:`, err.message);
+            }
+            await new Promise(r => setTimeout(r, 500));
+          }
+          console.log(`✅ Sent ${winbackSent} win-back messages`);
+        }
+      } catch (err) {
+        console.error('Win-back error:', err.message);
       }
     }
 
