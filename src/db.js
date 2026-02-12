@@ -1896,4 +1896,143 @@ export async function markLiteBriefingSent(telegramId) {
     .eq('telegram_id', telegramId);
 }
 
+// ============ TRIAL DRIP SEQUENCE ============
+
+/**
+ * Get trial users who need drip messages
+ * Returns users with active trials whose drip_step needs advancing
+ */
+export async function getTrialUsersForDrip() {
+  const { data } = await supabase
+    .from('pp_users')
+    .select('*')
+    .eq('subscription_status', 'premium')
+    .not('trial_started_at', 'is', null);
+
+  return (data || []).filter(u => {
+    if (!u.trial_started_at) return false;
+    const daysSinceTrial = (Date.now() - new Date(u.trial_started_at).getTime()) / (1000 * 60 * 60 * 24);
+    const currentStep = u.trial_drip_step || 0;
+
+    // Drip schedule: day 1 = step 1, day 3 = step 2, day 5 = step 3, day 7 = step 4
+    if (daysSinceTrial >= 7 && currentStep < 4) return true;
+    if (daysSinceTrial >= 5 && currentStep < 3) return true;
+    if (daysSinceTrial >= 3 && currentStep < 2) return true;
+    if (daysSinceTrial >= 1 && currentStep < 1) return true;
+    return false;
+  });
+}
+
+/**
+ * Get the next drip step for a user based on trial start date
+ */
+export function getNextDripStep(user) {
+  const daysSinceTrial = (Date.now() - new Date(user.trial_started_at).getTime()) / (1000 * 60 * 60 * 24);
+  const currentStep = user.trial_drip_step || 0;
+
+  if (daysSinceTrial >= 7 && currentStep < 4) return 4;
+  if (daysSinceTrial >= 5 && currentStep < 3) return 3;
+  if (daysSinceTrial >= 3 && currentStep < 2) return 2;
+  if (daysSinceTrial >= 1 && currentStep < 1) return 1;
+  return null;
+}
+
+/**
+ * Update a user's drip step
+ */
+export async function updateDripStep(telegramId, step) {
+  await supabase
+    .from('pp_users')
+    .update({ trial_drip_step: step })
+    .eq('telegram_id', telegramId);
+}
+
+/**
+ * Set trial_started_at for a user (called when trial begins)
+ */
+export async function setTrialStarted(telegramId) {
+  await supabase
+    .from('pp_users')
+    .update({
+      trial_started_at: new Date().toISOString(),
+      trial_drip_step: 0,
+    })
+    .eq('telegram_id', telegramId);
+}
+
+// ============ REFERRAL SYSTEM ============
+
+/**
+ * Generate a unique referral code for a user
+ */
+export async function getOrCreateReferralCode(telegramId) {
+  const { data: user } = await supabase
+    .from('pp_users')
+    .select('referral_code')
+    .eq('telegram_id', telegramId)
+    .single();
+
+  if (user?.referral_code) return user.referral_code;
+
+  // Generate a short unique code
+  const code = 'PP' + telegramId.toString(36).toUpperCase() + Math.random().toString(36).substring(2, 5).toUpperCase();
+
+  await supabase
+    .from('pp_users')
+    .update({ referral_code: code })
+    .eq('telegram_id', telegramId);
+
+  return code;
+}
+
+/**
+ * Look up a user by referral code
+ */
+export async function getUserByReferralCode(code) {
+  const { data } = await supabase
+    .from('pp_users')
+    .select('*')
+    .eq('referral_code', code)
+    .single();
+  return data;
+}
+
+/**
+ * Record a referral: set referred_by on the new user, increment referrer's count
+ */
+export async function recordReferral(newUserTelegramId, referrerTelegramId) {
+  // Set referred_by on new user
+  await supabase
+    .from('pp_users')
+    .update({ referred_by: referrerTelegramId })
+    .eq('telegram_id', newUserTelegramId);
+
+  // Increment referrer's referral_count
+  const { data: referrer } = await supabase
+    .from('pp_users')
+    .select('referral_count')
+    .eq('telegram_id', referrerTelegramId)
+    .single();
+
+  const newCount = (referrer?.referral_count || 0) + 1;
+  await supabase
+    .from('pp_users')
+    .update({ referral_count: newCount })
+    .eq('telegram_id', referrerTelegramId);
+
+  return newCount;
+}
+
+/**
+ * Get referral stats for a user
+ */
+export async function getReferralStats(telegramId) {
+  const { data } = await supabase
+    .from('pp_users')
+    .select('referral_code, referral_count')
+    .eq('telegram_id', telegramId)
+    .single();
+  return { code: data?.referral_code, count: data?.referral_count || 0 };
+}
+
 export { supabase };

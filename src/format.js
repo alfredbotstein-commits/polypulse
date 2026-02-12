@@ -308,16 +308,16 @@ export function formatPremiumUpsell(feature = 'alerts') {
     digest: '📬',
   };
 
-  let msg = `${featureEmoji[feature] || '✨'} *${escapeMarkdown(feature.charAt(0).toUpperCase() + feature.slice(1))} is a Premium feature\\.*\n\n`;
-  msg += `Get instant notifications when markets move — so you never miss a trade\\.\n\n`;
-  msg += `*✨ Premium includes:*\n`;
+  let msg = `${featureEmoji[feature] || '✨'} *${escapeMarkdown(feature.charAt(0).toUpperCase() + feature.slice(1))} is a Pro feature\\.*\n\n`;
+  msg += `🎯 *Start your free trial — 7 days, cancel anytime*\n\n`;
+  msg += `*What you unlock:*\n`;
   
   PREMIUM_FEATURES.forEach(f => {
     msg += `${escapeMarkdown(f)}\n`;
   });
   
-  msg += `\n*$9\\.99/month* — cancel anytime\\.\n`;
-  msg += `→ /upgrade to start`;
+  msg += `\n_After your free trial, just $9\\.99/mo\\. Cancel anytime\\._\n`;
+  msg += `→ /upgrade to start your free trial`;
   
   return msg;
 }
@@ -330,7 +330,10 @@ export function formatRateLimit(remaining, feature) {
 
 Resets in ~${remaining} hours\\.
 
-Upgrade to Premium for unlimited access → /upgrade`;
+🎯 *Start your free trial — 7 days, cancel anytime*
+Unlock unlimited ${escapeMarkdown(feature)} \\+ whale alerts, briefings & more\\.
+
+→ /upgrade`;
 }
 
 /**
@@ -495,7 +498,8 @@ Status: Free tier
 • Searches: ${usage.search || 0}/5
 • Alerts: 3 max
 
-_Upgrade to Premium for unlimited access → /upgrade_`;
+🎯 *Try Pro free for 7 days* — unlimited everything\\.
+→ /upgrade to start your free trial`;
 }
 
 // ============ HELPERS ============

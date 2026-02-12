@@ -11,6 +11,7 @@ import {
   markLiteBriefingSent,
 } from './db.js';
 import { generateBriefingMessage, generateLiteBriefingMessage } from './briefing.js';
+import { checkAndSendDrips } from './drip.js';
 
 // Initialize bot for sending
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
@@ -116,6 +117,11 @@ async function runBriefingCron() {
         }
       }
     }
+
+    // === TRIAL DRIP MESSAGES ===
+    console.log('\n💧 Checking trial drip messages...');
+    const dripsSent = await checkAndSendDrips(bot.api);
+    console.log(`✅ Sent ${dripsSent} drip messages`);
 
   } catch (err) {
     console.error('Briefing cron error:', err);

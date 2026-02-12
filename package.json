@@ -12,7 +12,8 @@
     "briefing": "node src/briefing-cron.js",
     "briefing:test": "node scripts/test-briefing.js",
     "whale": "node src/whale-monitor.js",
-    "smartalerts": "node src/smart-alert-monitor.js"
+    "smartalerts": "node src/smart-alert-monitor.js",
+    "drip": "node src/drip-cron.js"
   },
   "keywords": [
     "polymarket",

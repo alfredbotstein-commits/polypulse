@@ -61,6 +61,11 @@ import {
   getLeaderboard,
   getUserLeaderboardRank,
   countMonthlyPredictors,
+  // Referral system
+  getOrCreateReferralCode,
+  getUserByReferralCode,
+  recordReferral,
+  getReferralStats,
 } from './db.js';
 import {
   searchMarketsFulltext,
@@ -168,30 +173,110 @@ bot.use(async (ctx, next) => {
 
 // ============ COMMANDS ============
 
-// /start - Clean welcome with action buttons
+// /start - Clean welcome with action buttons — trial-first messaging
 bot.command('start', async (ctx) => {
   console.log('[DEBUG] /start command triggered by user:', ctx.from?.id);
   try {
-    const keyboard = new InlineKeyboard()
+    // Handle deep link parameters
+    const startParam = ctx.match?.trim();
+    
+    // Handle /start upgraded — celebration for new Pro users
+    if (startParam === 'upgraded') {
+      const keyboard = new InlineKeyboard()
+        .text('☀️ Set Up Briefing', 'action:briefing_setup')
+        .text('🐋 Whale Alerts', 'action:whale_setup')
+        .row()
+        .text('🔥 Trending Markets', 'action:trending')
+        .text('🏠 Home', 'action:back_home');
+      
+      return ctx.reply(`🎉 *Welcome to PolyPulse Pro\\!*
+
+You just unlocked the full power of Polymarket intelligence:
+
+✅ Unlimited price alerts
+✅ 🐋 Real\\-time whale alerts \\($50K\\+ bets\\)
+✅ ☀️ Personalized morning briefings
+✅ 📋 Unlimited watchlist
+✅ 💼 Full portfolio tracking
+✅ 🧠 Smart alerts \\(volume spikes, momentum\\)
+
+*Get started:*
+• Set up your morning briefing
+• Enable whale alerts
+• Browse trending markets
+
+_Welcome aboard — you're trading smarter now\\. 🚀_`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+
+    // Handle /start cancelled
+    if (startParam === 'cancelled') {
+      const keyboard = new InlineKeyboard()
+        .text('🎯 Start 7-Day Free Trial', 'action:upgrade')
+        .row()
+        .text('🔥 Trending Markets', 'action:trending')
+        .text('🏠 Home', 'action:back_home');
+      
+      return ctx.reply(`📊 *No worries\\!*
+
+You can still use PolyPulse for free with limited features\\.
+
+When you're ready, the *7\\-day free trial* is waiting — no commitment, cancel anytime\\.`, {
+        parse_mode: 'MarkdownV2',
+        reply_markup: keyboard,
+      });
+    }
+
+    // Handle referral deep links: /start ref_XXXX
+    if (startParam && startParam.startsWith('ref_')) {
+      const refCode = startParam.replace('ref_', '');
+      try {
+        const referrer = await getUserByReferralCode(refCode);
+        if (referrer && referrer.telegram_id !== ctx.from.id) {
+          await recordReferral(ctx.from.id, referrer.telegram_id);
+        }
+      } catch (e) {
+        console.error('Referral tracking error:', e.message);
+      }
+    }
+
+    const showTrial = !ctx.isPremium;
+
+    const keyboard = new InlineKeyboard();
+    if (showTrial) {
+      keyboard.text('🎯 Start 7-Day Free Trial', 'action:upgrade').row();
+    }
+    keyboard
       .text('🔥 Trending Markets', 'action:trending')
       .text('🔍 Browse Categories', 'action:categories')
       .row()
       .text('💰 My Portfolio', 'action:portfolio')
-      .text('⭐ Go Premium', 'action:upgrade');
+      .text(showTrial ? '❓ Help' : '⭐ Premium', showTrial ? 'action:help' : 'action:upgrade');
     
-    let msg = `📊 *PolyPulse* — Real\\-time Polymarket intelligence\n\nTrack odds, set alerts, and never miss a market move\\.\n`;
+    let msg = `📊 *PolyPulse* — Real\\-time Polymarket intelligence\n\n`;
 
     // Live trending market hook
     try {
-      const trendingMarkets = await getTrendingMarkets(1);
+      const trendingMarkets = await getTrendingMarkets(2);
       if (trendingMarkets.length > 0) {
-        const m = enrichMarket(trendingMarkets[0]);
-        const question = truncate(m.question, 50);
-        msg += `\n🔥 *Trending now:* ${escapeMarkdown(question)}\n`;
-        msg += `   ${escapeMarkdown(m.yesPct)} YES · Vol: ${escapeMarkdown(m.volume)}\n`;
+        msg += `🔥 *Live right now:*\n`;
+        for (const t of trendingMarkets.slice(0, 2)) {
+          const m = enrichMarket(t);
+          const question = truncate(m.question, 45);
+          msg += `  • ${escapeMarkdown(question)} — *${escapeMarkdown(m.yesPct)}* YES\n`;
+        }
+        msg += `\n`;
       }
     } catch (e) {
       console.error('Start trending hook error:', e.message);
+    }
+
+    if (showTrial) {
+      msg += `🔓 _Free users see limited data\\. Pro unlocks the full picture:_\n`;
+      msg += `   Unlimited alerts, whale moves, briefings & more\\.\n\n`;
+      msg += `🎯 *Try Pro free for 7 days* — no commitment, cancel anytime\\.\n`;
     }
 
     // Returning user context
@@ -211,7 +296,6 @@ bot.command('start', async (ctx) => {
     });
   } catch (err) {
     console.error('Start command error:', err);
-    // Fallback to plain text if MarkdownV2 fails
     await ctx.reply('📊 Welcome to PolyPulse!\n\nUse /help to see commands, or /trending to get started.');
   }
 });
@@ -306,13 +390,13 @@ bot.command('trending', async (ctx) => {
           const m = enrichMarket(preview[0]);
           const question = truncate(m.question, 50);
           return ctx.reply(
-            `⏳ *Daily limit reached*\n\n🔥 *Sneak peek:* ${escapeMarkdown(question)}\n   ${escapeMarkdown(m.yesPct)} YES · Vol: ${escapeMarkdown(m.volume)}\n\n_4 more trending markets waiting for you\\.\\.\\._\n\n⭐ /upgrade — 7 days free`,
+            `⏳ *Daily limit reached*\n\n🔥 *Sneak peek:* ${escapeMarkdown(question)}\n   ${escapeMarkdown(m.yesPct)} YES · Vol: ${escapeMarkdown(m.volume)}\n\n_4 more trending markets waiting for you\\.\\.\\._\n\n🎯 Start your free trial — 7 days free, cancel anytime`,
             { parse_mode: 'MarkdownV2' }
           );
         }
       } catch {}
       const hoursLeft = Math.ceil(24 - ((Date.now() - new Date(ctx.user.usage_reset_at)) / (1000 * 60 * 60)));
-      return ctx.reply(formatRateLimit(hoursLeft, 'trending') + '\n\n⭐ /upgrade — 7 days free', { parse_mode: 'MarkdownV2' });
+      return ctx.reply(formatRateLimit(hoursLeft, 'trending') + '\n\n🎯 Start your free trial — 7 days free, cancel anytime', { parse_mode: 'MarkdownV2' });
     }
   }
 
@@ -364,13 +448,13 @@ _I'll show you the current odds and recent trends\\._`,
         if (preview.length > 0) {
           const question = truncate(preview[0].question, 50);
           return ctx.reply(
-            `⏳ *Daily limit reached*\n\n📊 *${escapeMarkdown(question)}*\n   YES: ██% · Vol: $███K\n\n_Unlock full data with Premium_\n\n⭐ /upgrade — 7 days free`,
+            `⏳ *Daily limit reached*\n\n📊 *${escapeMarkdown(question)}*\n   YES: ██% · Vol: $███K\n\n_Unlock full data with Premium_\n\n🎯 Start your free trial — 7 days free, cancel anytime`,
             { parse_mode: 'MarkdownV2' }
           );
         }
       } catch {}
       const hoursLeft = Math.ceil(24 - ((Date.now() - new Date(ctx.user.usage_reset_at)) / (1000 * 60 * 60)));
-      return ctx.reply(formatRateLimit(hoursLeft, 'price') + '\n\n⭐ /upgrade — 7 days free', { parse_mode: 'MarkdownV2' });
+      return ctx.reply(formatRateLimit(hoursLeft, 'price') + '\n\n🎯 Start your free trial — 7 days free, cancel anytime', { parse_mode: 'MarkdownV2' });
     }
   }
 
@@ -395,6 +479,16 @@ _I'll show you the current odds and recent trends\\._`,
       parse_mode: 'MarkdownV2',
       disable_web_page_preview: true,
     });
+
+    // Post-command trial teaser for free users
+    if (!ctx.isPremium) {
+      const trialKeyboard = new InlineKeyboard()
+        .text('🎯 Try Pro Free →', 'action:upgrade');
+      await ctx.reply('💡 _Want deeper analysis, whale alerts & daily briefings? Try Pro free for 7 days\\._', {
+        parse_mode: 'MarkdownV2',
+        reply_markup: trialKeyboard,
+      });
+    }
   } catch (err) {
     console.error('Price error:', err);
     await ctx.reply(formatError('apiDown'), { parse_mode: 'MarkdownV2' });
@@ -429,13 +523,13 @@ _I'll show you matching markets with current odds\\._`,
         const preview = await searchMarketsFulltext(query, 50);
         if (preview.length > 0) {
           return ctx.reply(
-            `⏳ *Daily limit reached*\n\n🔍 Found *${preview.length} markets* for "${escapeMarkdown(query)}"\n\n_Unlock search results with Premium_\n\n⭐ /upgrade — 7 days free`,
+            `⏳ *Daily limit reached*\n\n🔍 Found *${preview.length} markets* for "${escapeMarkdown(query)}"\n\n_Unlock search results with Premium_\n\n🎯 Start your free trial — 7 days free, cancel anytime`,
             { parse_mode: 'MarkdownV2' }
           );
         }
       } catch {}
       const hoursLeft = Math.ceil(24 - ((Date.now() - new Date(ctx.user.usage_reset_at)) / (1000 * 60 * 60)));
-      return ctx.reply(formatRateLimit(hoursLeft, 'search') + '\n\n⭐ /upgrade — 7 days free', { parse_mode: 'MarkdownV2' });
+      return ctx.reply(formatRateLimit(hoursLeft, 'search') + '\n\n🎯 Start your free trial — 7 days free, cancel anytime', { parse_mode: 'MarkdownV2' });
     }
   }
 
@@ -1979,20 +2073,20 @@ bot.command('upgrade', async (ctx) => {
 
   // Check if Stripe is configured
   if (!STRIPE_ENABLED) {
-    const msg = `*✨ Upgrade to Premium*
+    const msg = `*🎯 Try Pro Free for 7 Days*
 
-${CONFIG.PREMIUM_PRICE_DISPLAY} — cancel anytime\\.
+Get the full power of PolyPulse — no commitment\\.
 
-*Premium includes:*
-• Unlimited price alerts
-• Whale movement notifications
-• Daily market digests
-• Watchlist \\& portfolio tracking
-• Priority support
+*What you unlock:*
+• Unlimited price alerts & searches
+• 🐋 Whale movement alerts \\($50K\\+ bets\\)
+• ☀️ Daily market briefings
+• 📋 Unlimited watchlist & portfolio
+• 🧠 Smart alerts & category subs
 
-🚧 _Payment integration coming soon\\!_
+_After your free trial, just $9\\.99/mo\\. Cancel anytime\\._
 
-We'll notify you when Premium is available\\.`;
+🚧 _Payment integration coming soon\\!_`;
 
     return ctx.reply(msg, { parse_mode: 'MarkdownV2' });
   }
@@ -2032,15 +2126,21 @@ We'll notify you when Premium is available\\.`;
       },
     });
 
-    const msg = `*✨ Upgrade to Premium*
+    const msg = `*🎯 Try Pro Free for 7 Days*
 
-${CONFIG.PREMIUM_PRICE_DISPLAY} — cancel anytime\\.
+Get the full power of PolyPulse — no commitment\\.
 
-Tap below to complete your upgrade:
+*What you unlock:*
+• Unlimited price alerts & searches
+• 🐋 Whale movement alerts \\($50K\\+ bets\\)
+• ☀️ Daily market briefings
+• 📋 Unlimited watchlist & portfolio
 
-[🚀 Start Premium →](${session.url})
+_After your free trial, just $9\\.99/mo\\. Cancel anytime\\._
 
-_Secure payment via Stripe\\._`;
+[🚀 Start Free Trial →](${session.url})
+
+_Secure payment via Stripe\\. You won't be charged during your trial\\._`;
 
     await ctx.reply(msg, {
       parse_mode: 'MarkdownV2',
@@ -2049,6 +2149,38 @@ _Secure payment via Stripe\\._`;
   } catch (err) {
     console.error('Upgrade error:', err);
     await ctx.reply('❌ Could not create checkout\\. Please try again\\.', { parse_mode: 'MarkdownV2' });
+  }
+});
+
+// ============ REFERRAL COMMAND ============
+
+// /refer - Share referral link
+bot.command('refer', async (ctx) => {
+  try {
+    const code = await getOrCreateReferralCode(ctx.from.id);
+    const stats = await getReferralStats(ctx.from.id);
+    const link = `https://t.me/GetPolyPulse_bot?start=ref_${code}`;
+
+    const msg = `*🎁 Refer a Friend, Get Rewarded*
+
+Share your link and get *7 extra days free* when a friend starts a trial\\.
+
+🔗 Your referral link:
+\`${escapeMarkdown(link)}\`
+
+📊 *Your stats:*
+• Referrals: *${stats.count}*
+• Code: \`${escapeMarkdown(code)}\`
+
+_Send this link to friends who trade on Polymarket\\!_`;
+
+    await ctx.reply(msg, {
+      parse_mode: 'MarkdownV2',
+      disable_web_page_preview: true,
+    });
+  } catch (err) {
+    console.error('Refer error:', err);
+    await ctx.reply(formatError('generic'), { parse_mode: 'MarkdownV2' });
   }
 });
 
@@ -2285,12 +2417,17 @@ async function handleMainAction(ctx, action) {
 
 // Show home menu (same as /start)
 async function showHomeMenu(ctx) {
-  const keyboard = new InlineKeyboard()
+  const showTrial = !ctx.isPremium;
+  const keyboard = new InlineKeyboard();
+  if (showTrial) {
+    keyboard.text('🎯 Start 7-Day Free Trial', 'action:upgrade').row();
+  }
+  keyboard
     .text('🔥 Trending Markets', 'action:trending')
     .text('🔍 Browse Categories', 'action:categories')
     .row()
     .text('💰 My Portfolio', 'action:portfolio')
-    .text('⭐ Go Premium', 'action:upgrade');
+    .text(showTrial ? '❓ Help' : '⭐ Premium', showTrial ? 'action:help' : 'action:upgrade');
   
   const msg = `📊 *PolyPulse* — Real\\-time Polymarket intelligence
 
@@ -2795,17 +2932,18 @@ Thank you for your support\\. Here's what you unlocked:
     const keyboard = new InlineKeyboard()
       .text('🏠 Home', 'action:back_home');
     
-    return ctx.editMessageText(`*✨ Premium Coming Soon*
+    return ctx.editMessageText(`*🎯 Try Pro Free for 7 Days*
 
-$9\\.99/mo — all the power of Polymarket in your pocket:
+Get the full power of PolyPulse — no commitment\\.
 
-• Unlimited price alerts
+• Unlimited price alerts & searches
 • 🐋 Whale movement alerts
 • ☀️ Daily market briefings  
-• 📋 Unlimited watchlist
-• 💼 Full portfolio tracking
+• 📋 Unlimited watchlist & portfolio
 
-_We'll notify you when Premium is available\\._`, {
+_After your free trial, just $9\\.99/mo\\. Cancel anytime\\._
+
+🚧 _Payment integration coming soon\\!_`, {
       parse_mode: 'MarkdownV2',
       reply_markup: keyboard,
     });
@@ -2839,20 +2977,21 @@ _We'll notify you when Premium is available\\._`, {
     });
 
     const keyboard = new InlineKeyboard()
-      .url('🚀 Start Premium →', session.url)
+      .url('🚀 Start Free Trial →', session.url)
       .row()
       .text('🏠 Home', 'action:back_home');
 
-    await ctx.editMessageText(`*✨ Upgrade to Premium*
+    await ctx.editMessageText(`*🎯 Try Pro Free for 7 Days*
 
-*$9\\.99/mo* — cancel anytime
+Get the full power of PolyPulse — no commitment\\.
 
-*What you get:*
-• Unlimited price alerts
+*What you unlock:*
+• Unlimited price alerts & searches
 • 🐋 Whale movement alerts \\($50K\\+ bets\\)
 • ☀️ Daily market briefings
-• 📋 Unlimited watchlist
-• 💼 Full portfolio tracking
+• 📋 Unlimited watchlist & portfolio
+
+_After your free trial, just $9\\.99/mo\\. Cancel anytime\\._
 
 Tap below to start:`, {
       parse_mode: 'MarkdownV2',
@@ -3531,8 +3670,9 @@ bot.start({
       { command: 'watch', description: 'Track a market' },
       { command: 'watchlist', description: 'See watched markets' },
       { command: 'account', description: 'Check subscription status' },
-      { command: 'upgrade', description: 'Get Premium ($9.99/mo)' },
+      { command: 'upgrade', description: 'Try Pro free for 7 days' },
       { command: 'manage', description: 'Manage your subscription' },
+      { command: 'refer', description: 'Refer a friend, get 7 days free' },
     ]);
     console.log('📋 Commands registered with Telegram');
     
