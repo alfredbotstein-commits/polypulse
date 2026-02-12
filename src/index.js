@@ -179,9 +179,31 @@ bot.command('start', async (ctx) => {
       .text('💰 My Portfolio', 'action:portfolio')
       .text('⭐ Go Premium', 'action:upgrade');
     
-    const msg = `📊 *PolyPulse* — Real\\-time Polymarket intelligence
+    let msg = `📊 *PolyPulse* — Real\\-time Polymarket intelligence\n\nTrack odds, set alerts, and never miss a market move\\.\n`;
 
-Track odds, set alerts, and never miss a market move\\.`;
+    // Live trending market hook
+    try {
+      const trendingMarkets = await getTrendingMarkets(1);
+      if (trendingMarkets.length > 0) {
+        const m = enrichMarket(trendingMarkets[0]);
+        const question = truncate(m.question, 50);
+        msg += `\n🔥 *Trending now:* ${escapeMarkdown(question)}\n`;
+        msg += `   ${escapeMarkdown(m.yesPct)} YES · Vol: ${escapeMarkdown(m.volume)}\n`;
+      }
+    } catch (e) {
+      console.error('Start trending hook error:', e.message);
+    }
+
+    // Returning user context
+    try {
+      const alertCount = await countUserAlerts(ctx.user.id);
+      const posCount = await countOpenPositions(ctx.from.id);
+      if (alertCount > 0 || posCount > 0) {
+        msg += `\n📋 You have *${alertCount}* alert${alertCount !== 1 ? 's' : ''} and *${posCount}* position${posCount !== 1 ? 's' : ''}\n`;
+      }
+    } catch (e) {
+      console.error('Start user context error:', e.message);
+    }
 
     await ctx.reply(msg, { 
       parse_mode: 'MarkdownV2',
@@ -277,8 +299,20 @@ bot.command('trending', async (ctx) => {
   if (!ctx.isPremium) {
     const usage = await checkUsage(ctx.user, 'trending');
     if (!usage.allowed) {
+      // Show a data preview instead of just "limit reached"
+      try {
+        const preview = await getTrendingMarkets(1);
+        if (preview.length > 0) {
+          const m = enrichMarket(preview[0]);
+          const question = truncate(m.question, 50);
+          return ctx.reply(
+            `⏳ *Daily limit reached*\n\n🔥 *Sneak peek:* ${escapeMarkdown(question)}\n   ${escapeMarkdown(m.yesPct)} YES · Vol: ${escapeMarkdown(m.volume)}\n\n_4 more trending markets waiting for you\\.\\.\\._\n\n⭐ /upgrade — 7 days free`,
+            { parse_mode: 'MarkdownV2' }
+          );
+        }
+      } catch {}
       const hoursLeft = Math.ceil(24 - ((Date.now() - new Date(ctx.user.usage_reset_at)) / (1000 * 60 * 60)));
-      return ctx.reply(formatRateLimit(hoursLeft, 'trending'), { parse_mode: 'MarkdownV2' });
+      return ctx.reply(formatRateLimit(hoursLeft, 'trending') + '\n\n⭐ /upgrade — 7 days free', { parse_mode: 'MarkdownV2' });
     }
   }
 
@@ -324,8 +358,19 @@ _I'll show you the current odds and recent trends\\._`,
   if (!ctx.isPremium) {
     const usage = await checkUsage(ctx.user, 'price');
     if (!usage.allowed) {
+      // Show redacted preview
+      try {
+        const preview = await searchMarketsFulltext(query, 1);
+        if (preview.length > 0) {
+          const question = truncate(preview[0].question, 50);
+          return ctx.reply(
+            `⏳ *Daily limit reached*\n\n📊 *${escapeMarkdown(question)}*\n   YES: ██% · Vol: $███K\n\n_Unlock full data with Premium_\n\n⭐ /upgrade — 7 days free`,
+            { parse_mode: 'MarkdownV2' }
+          );
+        }
+      } catch {}
       const hoursLeft = Math.ceil(24 - ((Date.now() - new Date(ctx.user.usage_reset_at)) / (1000 * 60 * 60)));
-      return ctx.reply(formatRateLimit(hoursLeft, 'price'), { parse_mode: 'MarkdownV2' });
+      return ctx.reply(formatRateLimit(hoursLeft, 'price') + '\n\n⭐ /upgrade — 7 days free', { parse_mode: 'MarkdownV2' });
     }
   }
 
@@ -379,8 +424,18 @@ _I'll show you matching markets with current odds\\._`,
   if (!ctx.isPremium) {
     const usage = await checkUsage(ctx.user, 'search');
     if (!usage.allowed) {
+      // Show result count preview
+      try {
+        const preview = await searchMarketsFulltext(query, 50);
+        if (preview.length > 0) {
+          return ctx.reply(
+            `⏳ *Daily limit reached*\n\n🔍 Found *${preview.length} markets* for "${escapeMarkdown(query)}"\n\n_Unlock search results with Premium_\n\n⭐ /upgrade — 7 days free`,
+            { parse_mode: 'MarkdownV2' }
+          );
+        }
+      } catch {}
       const hoursLeft = Math.ceil(24 - ((Date.now() - new Date(ctx.user.usage_reset_at)) / (1000 * 60 * 60)));
-      return ctx.reply(formatRateLimit(hoursLeft, 'search'), { parse_mode: 'MarkdownV2' });
+      return ctx.reply(formatRateLimit(hoursLeft, 'search') + '\n\n⭐ /upgrade — 7 days free', { parse_mode: 'MarkdownV2' });
     }
   }
 
@@ -1967,6 +2022,9 @@ We'll notify you when Premium is available\\.`;
         price: process.env.STRIPE_PRICE_ID,
         quantity: 1,
       }],
+      subscription_data: {
+        trial_period_days: CONFIG.TRIAL_DAYS,
+      },
       success_url: `${process.env.BOT_URL || 'https://t.me/GetPolyPulse_bot'}?start=upgraded`,
       cancel_url: `${process.env.BOT_URL || 'https://t.me/GetPolyPulse_bot'}?start=cancelled`,
       metadata: {
@@ -1995,6 +2053,33 @@ _Secure payment via Stripe\\._`;
 });
 
 // ============ COMMAND ALIASES ============
+
+// /manage - Subscription management via Stripe billing portal
+bot.command('manage', async (ctx) => {
+  if (!STRIPE_ENABLED) {
+    return ctx.reply('🚧 _Subscription management coming soon\\._', { parse_mode: 'MarkdownV2' });
+  }
+
+  const customerId = ctx.user.stripe_customer_id;
+  if (!customerId) {
+    return ctx.reply('You don\'t have an active subscription yet\\. Try /upgrade', { parse_mode: 'MarkdownV2' });
+  }
+
+  try {
+    const portalSession = await stripe.billingPortal.sessions.create({
+      customer: customerId,
+      return_url: process.env.BOT_URL || 'https://t.me/GetPolyPulse_bot',
+    });
+
+    await ctx.reply(
+      `*⚙️ Manage Subscription*\n\nTap below to manage billing, update payment method, or cancel:\n\n[📋 Manage Subscription →](${portalSession.url})\n\n_Secure portal via Stripe\\._`,
+      { parse_mode: 'MarkdownV2', disable_web_page_preview: false }
+    );
+  } catch (err) {
+    console.error('Manage error:', err);
+    await ctx.reply('❌ Could not open billing portal\\. Please try again\\.', { parse_mode: 'MarkdownV2' });
+  }
+});
 
 // /market → alias for /trending
 bot.command('market', async (ctx) => {
@@ -2745,6 +2830,9 @@ _We'll notify you when Premium is available\\._`, {
       customer: customerId,
       mode: 'subscription',
       line_items: [{ price: process.env.STRIPE_PRICE_ID, quantity: 1 }],
+      subscription_data: {
+        trial_period_days: CONFIG.TRIAL_DAYS,
+      },
       success_url: `${process.env.BOT_URL || 'https://t.me/GetPolyPulse_bot'}?start=upgraded`,
       cancel_url: `${process.env.BOT_URL || 'https://t.me/GetPolyPulse_bot'}?start=cancelled`,
       metadata: { telegram_id: ctx.from.id.toString() },
@@ -3444,6 +3532,7 @@ bot.start({
       { command: 'watchlist', description: 'See watched markets' },
       { command: 'account', description: 'Check subscription status' },
       { command: 'upgrade', description: 'Get Premium ($9.99/mo)' },
+      { command: 'manage', description: 'Manage your subscription' },
     ]);
     console.log('📋 Commands registered with Telegram');
     

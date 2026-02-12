@@ -13,7 +13,7 @@ import {
   parseOutcomes,
   getNewMarkets,
 } from './polymarket.js';
-import { formatMorningBriefing, escapeMarkdown, truncate } from './format.js';
+import { formatMorningBriefing, formatLiteBriefing, escapeMarkdown, truncate } from './format.js';
 
 /**
  * Fetch user's watchlist with current prices and overnight changes
@@ -181,9 +181,38 @@ export async function generateBriefingMessage(userId, telegramId) {
   return formatMorningBriefing(data);
 }
 
+/**
+ * Generate lite briefing message for free users
+ * Top 3 movers + biggest volume market + upgrade CTA
+ */
+export async function generateLiteBriefingMessage() {
+  try {
+    const topMovers = await getTopMovers();
+    
+    // Find biggest volume market from trending
+    const trending = await getTrendingMarkets(10);
+    let biggestVolume = null;
+    if (trending.length > 0) {
+      biggestVolume = trending.reduce((max, m) => {
+        const vol = m.volume24hr || m.volumeNum || 0;
+        const maxVol = max.volume24hr || max.volumeNum || 0;
+        return vol > maxVol ? m : max;
+      });
+    }
+
+    if (topMovers.length === 0 && !biggestVolume) return null;
+
+    return formatLiteBriefing(topMovers, biggestVolume);
+  } catch (err) {
+    console.error('Lite briefing generation error:', err.message);
+    return null;
+  }
+}
+
 export default {
   generateBriefingData,
   generateBriefingMessage,
+  generateLiteBriefingMessage,
   getWatchlistWithPrices,
   getTriggeredAlertsLast24h,
   getTopMovers,

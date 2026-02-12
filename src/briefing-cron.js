@@ -7,8 +7,10 @@ import { Bot } from 'grammy';
 import {
   getUsersForBriefing,
   markBriefingSent,
+  getFreeUsersForLiteBriefing,
+  markLiteBriefingSent,
 } from './db.js';
-import { generateBriefingMessage } from './briefing.js';
+import { generateBriefingMessage, generateLiteBriefingMessage } from './briefing.js';
 
 // Initialize bot for sending
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
@@ -82,7 +84,38 @@ async function runBriefingCron() {
       await new Promise(r => setTimeout(r, 1000));
     }
 
-    console.log(`\n✅ Briefing cron complete. Sent ${users.length} briefings.`);
+    console.log(`\n✅ Premium briefing cron complete. Sent ${users.length} briefings.`);
+
+    // === LITE BRIEFING FOR FREE USERS ===
+    // Only send once per day at UTC hour 14 (~9am EST)
+    if (utcHour === 14) {
+      console.log('\n📨 Sending lite briefings to free users...');
+      const freeUsers = await getFreeUsersForLiteBriefing();
+      console.log(`Found ${freeUsers.length} free users for lite briefing`);
+
+      if (freeUsers.length > 0) {
+        const liteMessage = await generateLiteBriefingMessage();
+        if (liteMessage) {
+          let liteSent = 0;
+          for (const user of freeUsers) {
+            try {
+              await bot.api.sendMessage(user.telegram_id, liteMessage, {
+                parse_mode: 'MarkdownV2',
+                disable_web_page_preview: true,
+              });
+              await markLiteBriefingSent(user.telegram_id);
+              liteSent++;
+            } catch (err) {
+              console.error(`Failed lite briefing to ${user.telegram_id}:`, err.message);
+            }
+            await new Promise(r => setTimeout(r, 500));
+          }
+          console.log(`✅ Sent ${liteSent} lite briefings`);
+        } else {
+          console.log('No lite briefing content available, skipping');
+        }
+      }
+    }
 
   } catch (err) {
     console.error('Briefing cron error:', err);

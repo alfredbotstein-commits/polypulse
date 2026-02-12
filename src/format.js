@@ -1714,4 +1714,35 @@ ${predEmoji} Your prediction: *${existingPrediction.prediction}*
 _You can only predict once per market\\._`;
 }
 
+/**
+ * Format lite briefing for free users
+ * Top 3 movers + biggest volume market + upgrade CTA
+ */
+export function formatLiteBriefing(topMovers, biggestVolume) {
+  let msg = `📊 *PolyPulse Daily Snapshot*\n\n`;
+
+  if (topMovers.length > 0) {
+    msg += `*🔥 Biggest Movers*\n`;
+    topMovers.slice(0, 3).forEach((m, i) => {
+      const change = m.currentPrice - m.yesterdayPrice;
+      const changePct = (change * 100).toFixed(1);
+      const sign = change >= 0 ? '+' : '';
+      const emoji = change >= 0 ? '📈' : '📉';
+      const question = truncate(m.question, 40);
+      msg += `${emoji} ${escapeMarkdown(question)}\n   ${sign}${escapeMarkdown(changePct)}% → now ${escapeMarkdown((m.currentPrice * 100).toFixed(0))}%\n`;
+    });
+    msg += `\n`;
+  }
+
+  if (biggestVolume) {
+    const question = truncate(biggestVolume.question, 40);
+    const vol = formatVolume(biggestVolume.volume24hr || biggestVolume.volume || 0);
+    msg += `*💰 Highest Volume*\n${escapeMarkdown(question)}\nVol: ${escapeMarkdown(vol)}\n\n`;
+  }
+
+  msg += `_Premium users get full briefings with watchlist updates, whale alerts, and more\\._\n\n⭐ /upgrade — 7 days free`;
+
+  return msg;
+}
+
 export { parseOutcomes };

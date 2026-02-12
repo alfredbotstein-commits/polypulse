@@ -1868,4 +1868,32 @@ export async function countMonthlyPredictors() {
   return uniqueUsers.size;
 }
 
+// ============ LITE BRIEFING (FREE USERS) ============
+
+/**
+ * Get free users eligible for lite briefing
+ * Free users who haven't received a lite briefing in the last 24h
+ */
+export async function getFreeUsersForLiteBriefing() {
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const { data } = await supabase
+    .from('pp_users')
+    .select('*')
+    .or('subscription_status.is.null,subscription_status.neq.active')
+    .or(`lite_briefing_sent_at.is.null,lite_briefing_sent_at.lt.${yesterday}`);
+
+  return data || [];
+}
+
+/**
+ * Mark lite briefing as sent for a user
+ */
+export async function markLiteBriefingSent(telegramId) {
+  await supabase
+    .from('pp_users')
+    .update({ lite_briefing_sent_at: new Date().toISOString() })
+    .eq('telegram_id', telegramId);
+}
+
 export { supabase };

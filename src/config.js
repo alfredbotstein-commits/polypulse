@@ -8,8 +8,8 @@ export const CONFIG = {
   
   // Pricing
   PREMIUM_PRICE: 999, // $9.99 in cents
-  PREMIUM_PRICE_DISPLAY: '\\$9\\.99/month',
-  TRIAL_DAYS: 0, // Set to 7 for free trial
+  PREMIUM_PRICE_DISPLAY: '7 days free, then \\$9\\.99/month',
+  TRIAL_DAYS: 7,
   
   // Free Tier Limits (per day)
   FREE_LIMITS: {
