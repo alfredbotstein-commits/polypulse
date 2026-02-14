@@ -1,1 +1,1 @@
-https://unwarpable-philip-houndlike.ngrok-free.dev/webhook
+https://polypulse-webhook.netlify.app/stripe-webhook

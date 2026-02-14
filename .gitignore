@@ -6,3 +6,6 @@ data/
 *.db
 *.db-journal
 *.bak
+
+# Local Netlify folder
+.netlify
